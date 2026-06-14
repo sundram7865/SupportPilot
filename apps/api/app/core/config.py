@@ -10,7 +10,10 @@ class Settings(BaseSettings):
     
     urbankart_base_url:str="http://localhost:8001"
     urbankart_api_key: str="dev_urbankaert_key"
-    
+    dev_auth_enabled: bool = True
+
+    clerk_issuer: str | None = None
+    clerk_jwks_url: str | None = None
     model_config=SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

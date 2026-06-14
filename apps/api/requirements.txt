@@ -8,3 +8,5 @@ alembic==1.14.0
 redis==5.2.1
 httpx==0.28.1
 python-dotenv==1.0.1
+PyJWT[crypto]==2.10.1
+python-slugify==8.0.4
