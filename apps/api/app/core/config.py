@@ -1,5 +1,5 @@
 from functools import lru_cache
-from pydantic_setting import BaseSetting,SettingConfigDict
+from pydantic_settings import BaseSettings,SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     urbankart_base_url:str="http://localhost:8001"
     urbankart_api_key: str="dev_urbankaert_key"
     
-    model_config=SettingConfigDict(
+    model_config=SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore"
