@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# build
+.next/
+dist/
+build/
+coverage/
+
+# docker/db
+postgres-data/
+redis-data/
+
+# os/editor
+.DS_Store
+.vscode/
+.idea/
