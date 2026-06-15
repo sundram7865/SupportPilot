@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,12 +12,21 @@ from app.common.enums import (
     TicketSource,
     TicketStatus,
     TicketTimelineEventType,
+    TicketTransitionTrigger,
 )
 from app.db.base import Base
 
 
 class Ticket(Base):
     __tablename__ = "tickets"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "ticket_number",
+            name="uq_tickets_org_ticket_number_model",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -39,7 +48,6 @@ class Ticket(Base):
     )
 
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
-
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
     status: Mapped[str] = mapped_column(
@@ -48,6 +56,20 @@ class Ticket(Base):
         nullable=False,
         index=True,
     )
+
+    status_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    status_changed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     priority: Mapped[str] = mapped_column(
         String(50),
@@ -70,9 +92,7 @@ class Ticket(Base):
     )
 
     customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
     customer_email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-
     customer_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     external_order_id: Mapped[str | None] = mapped_column(
@@ -110,9 +130,7 @@ class Ticket(Base):
     )
 
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     ai_confidence_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
-
     metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -148,6 +166,13 @@ class Ticket(Base):
         back_populates="ticket",
         cascade="all, delete-orphan",
         order_by="TicketTimelineEvent.created_at",
+    )
+
+    status_transitions = relationship(
+        "TicketStatusTransition",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="TicketStatusTransition.created_at",
     )
 
 
@@ -189,11 +214,9 @@ class TicketMessage(Base):
     )
 
     sender_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
     sender_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     body: Mapped[str] = mapped_column(Text, nullable=False)
-
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -239,7 +262,6 @@ class TicketInternalNote(Base):
     )
 
     body: Mapped[str] = mapped_column(Text, nullable=False)
-
     metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -292,9 +314,7 @@ class TicketTimelineEvent(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
 
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     old_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
     new_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -307,3 +327,61 @@ class TicketTimelineEvent(Base):
     )
 
     ticket = relationship("Ticket", back_populates="timeline_events")
+
+
+class TicketStatusTransition(Base):
+    __tablename__ = "ticket_status_transitions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tickets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    from_status: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    to_status: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+
+    trigger: Mapped[str] = mapped_column(
+        String(80),
+        default=TicketTransitionTrigger.AGENT_ACTION.value,
+        nullable=False,
+        index=True,
+    )
+
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    is_allowed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    blocked_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    ticket = relationship("Ticket", back_populates="status_transitions")
