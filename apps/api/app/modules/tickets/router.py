@@ -1,12 +1,13 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.common.enums import (
     TicketMessageSenderType,
     TicketTimelineEventType,
+    TicketTransitionTrigger,
 )
 from app.db.session import get_db
 from app.modules.auth.dependencies import (
@@ -16,25 +17,39 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.permissions import Permission
 from app.modules.organizations.models import Organization, OrganizationMember
-from app.modules.tickets.models import Ticket, TicketInternalNote, TicketMessage, TicketTimelineEvent
+from app.modules.tickets.models import (
+    Ticket,
+    TicketInternalNote,
+    TicketMessage,
+    TicketStatusTransition,
+    TicketTimelineEvent,
+)
 from app.modules.tickets.schemas import (
     AddInternalNoteRequest,
     AddTicketMessageRequest,
     CreateTicketRequest,
     TicketDetailResponse,
     TicketInternalNoteResponse,
+    TicketLifecycleRulesResponse,
     TicketListItemResponse,
     TicketListResponse,
     TicketMessageResponse,
+    TicketStatusTransitionResponse,
     TicketTimelineEventResponse,
+    TransitionTicketStatusRequest,
     UpdateTicketRequest,
 )
 from app.modules.tickets.service import (
     add_internal_note,
     add_public_message,
     add_timeline_event,
-    apply_status_side_effects,
     generate_ticket_number,
+    transition_ticket_status,
+)
+from app.modules.tickets.state_machine import (
+    REOPEN_ALLOWED_FROM,
+    TERMINAL_STATUSES,
+    get_lifecycle_rules,
 )
 from app.modules.users.models import User
 
@@ -52,6 +67,7 @@ def get_ticket_or_404(
             selectinload(Ticket.messages),
             selectinload(Ticket.internal_notes),
             selectinload(Ticket.timeline_events),
+            selectinload(Ticket.status_transitions),
         )
         .where(Ticket.id == ticket_id)
         .where(Ticket.organization_id == organization_id)
@@ -101,6 +117,22 @@ def to_timeline_event_response(event: TicketTimelineEvent) -> TicketTimelineEven
     )
 
 
+def to_status_transition_response(
+    transition: TicketStatusTransition,
+) -> TicketStatusTransitionResponse:
+    return TicketStatusTransitionResponse(
+        id=str(transition.id),
+        actor_user_id=str(transition.actor_user_id) if transition.actor_user_id else None,
+        from_status=transition.from_status,
+        to_status=transition.to_status,
+        trigger=transition.trigger,
+        reason=transition.reason,
+        is_allowed=transition.is_allowed,
+        blocked_reason=transition.blocked_reason,
+        created_at=transition.created_at,
+    )
+
+
 def to_ticket_list_item(ticket: Ticket) -> TicketListItemResponse:
     return TicketListItemResponse(
         id=str(ticket.id),
@@ -129,6 +161,13 @@ def to_ticket_detail(ticket: Ticket) -> TicketDetailResponse:
         subject=ticket.subject,
         description=ticket.description,
         status=ticket.status,
+        status_changed_at=ticket.status_changed_at,
+        status_changed_by_user_id=(
+            str(ticket.status_changed_by_user_id)
+            if ticket.status_changed_by_user_id
+            else None
+        ),
+        status_reason=ticket.status_reason,
         priority=ticket.priority,
         category=ticket.category,
         source=ticket.source,
@@ -154,6 +193,10 @@ def to_ticket_detail(ticket: Ticket) -> TicketDetailResponse:
         timeline_events=[
             to_timeline_event_response(event) for event in ticket.timeline_events
         ],
+        status_transitions=[
+            to_status_transition_response(transition)
+            for transition in ticket.status_transitions
+        ],
     )
 
 
@@ -177,6 +220,21 @@ def ensure_assignee_is_org_member(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Assigned user must be an active member of the organization.",
         )
+
+
+@router.get(
+    "/lifecycle/rules",
+    response_model=TicketLifecycleRulesResponse,
+    dependencies=[Depends(require_permission(Permission.TICKET_READ))],
+)
+def get_ticket_lifecycle_rules(
+    organization: Organization = Depends(get_current_organization),
+):
+    return TicketLifecycleRulesResponse(
+        transitions=get_lifecycle_rules(),
+        terminal_statuses=sorted([status.value for status in TERMINAL_STATUSES]),
+        reopen_allowed_from=sorted([status.value for status in REOPEN_ALLOWED_FROM]),
+    )
 
 
 @router.post(
@@ -204,6 +262,8 @@ def create_ticket(
         customer_phone=payload.customer_phone,
         external_order_id=payload.external_order_id,
         created_by_user_id=current_user.id,
+        status_changed_by_user_id=current_user.id,
+        status_reason="Ticket created.",
         metadata_json=payload.metadata_json,
     )
 
@@ -277,10 +337,12 @@ def list_tickets(
     if search:
         like_pattern = f"%{search}%"
         filters.append(
-            Ticket.subject.ilike(like_pattern)
-            | Ticket.description.ilike(like_pattern)
-            | Ticket.customer_email.ilike(like_pattern)
-            | Ticket.ticket_number.ilike(like_pattern)
+            or_(
+                Ticket.subject.ilike(like_pattern),
+                Ticket.description.ilike(like_pattern),
+                Ticket.customer_email.ilike(like_pattern),
+                Ticket.ticket_number.ilike(like_pattern),
+            )
         )
 
     total = db.scalar(select(func.count(Ticket.id)).where(and_(*filters))) or 0
@@ -338,20 +400,14 @@ def update_ticket(
     if payload.description is not None:
         ticket.description = payload.description
 
-    if payload.status is not None and ticket.status != payload.status.value:
-        old_value = ticket.status
-        ticket.status = payload.status.value
-        apply_status_side_effects(ticket, payload.status.value)
-
-        add_timeline_event(
+    if payload.status is not None:
+        transition_ticket_status(
             db=db,
-            organization_id=organization.id,
-            ticket_id=ticket.id,
+            ticket=ticket,
+            to_status=payload.status,
             actor_user_id=current_user.id,
-            event_type=TicketTimelineEventType.STATUS_CHANGED,
-            title="Status changed",
-            old_value=old_value,
-            new_value=payload.status.value,
+            trigger=TicketTransitionTrigger.AGENT_ACTION,
+            reason=payload.status_reason,
         )
 
     if payload.priority is not None and ticket.priority != payload.priority.value:
@@ -426,6 +482,37 @@ def update_ticket(
             event_type=TicketTimelineEventType.CUSTOMER_UPDATED,
             title="Customer details updated",
         )
+
+    db.commit()
+
+    ticket = get_ticket_or_404(db, organization.id, ticket_id)
+
+    return to_ticket_detail(ticket)
+
+
+@router.post(
+    "/{ticket_id}/transition",
+    response_model=TicketDetailResponse,
+    dependencies=[Depends(require_permission(Permission.TICKET_UPDATE))],
+)
+def transition_ticket(
+    ticket_id: UUID,
+    payload: TransitionTicketStatusRequest,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(get_or_create_current_user),
+    db: Session = Depends(get_db),
+):
+    ticket = get_ticket_or_404(db, organization.id, ticket_id)
+
+    transition_ticket_status(
+        db=db,
+        ticket=ticket,
+        to_status=payload.to_status,
+        actor_user_id=current_user.id,
+        trigger=payload.trigger,
+        reason=payload.reason,
+        metadata_json=payload.metadata_json,
+    )
 
     db.commit()
 
