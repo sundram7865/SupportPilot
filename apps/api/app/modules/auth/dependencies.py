@@ -63,24 +63,26 @@ def get_current_membership(
     current_user: User = Depends(get_or_create_current_user),
     db: Session = Depends(get_db),
 ) -> OrganizationMember:
-    query = (
+    if not x_organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="x-organization-id header is required for organization-scoped routes.",
+        )
+
+    try:
+        organization_id = UUID(x_organization_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid x-organization-id header.",
+        )
+
+    membership = db.scalar(
         select(OrganizationMember)
         .where(OrganizationMember.user_id == current_user.id)
+        .where(OrganizationMember.organization_id == organization_id)
         .where(OrganizationMember.status == "ACTIVE")
     )
-
-    if x_organization_id:
-        try:
-            organization_id = UUID(x_organization_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid x-organization-id header.",
-            )
-
-        query = query.where(OrganizationMember.organization_id == organization_id)
-
-    membership = db.scalar(query)
 
     if not membership:
         raise HTTPException(
@@ -89,7 +91,6 @@ def get_current_membership(
         )
 
     return membership
-
 
 def get_current_organization(
     membership: OrganizationMember = Depends(get_current_membership),
