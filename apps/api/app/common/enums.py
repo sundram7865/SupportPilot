@@ -8,6 +8,13 @@ class OrganizationRole(StrEnum):
     SUPPORT_AGENT = "SUPPORT_AGENT"
     VIEWER = "VIEWER"
 
+
+class MemberStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    INVITED = "INVITED"
+    SUSPENDED = "SUSPENDED"
+
+
 class IntegrationProvider(StrEnum):
     URBANKART = "URBANKART"
 
@@ -21,8 +28,59 @@ class IntegrationStatus(StrEnum):
 class ExternalApiStatus(StrEnum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
-    
-class MemberStatus(StrEnum):
-    ACTIVE = "ACTIVE"
-    INVITED = "INVITED"
-    SUSPENDED = "SUSPENDED"
+
+
+class TicketStatus(StrEnum):
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    WAITING_FOR_CUSTOMER = "WAITING_FOR_CUSTOMER"
+    WAITING_FOR_INTERNAL_REVIEW = "WAITING_FOR_INTERNAL_REVIEW"
+    RESOLVED = "RESOLVED"
+    CLOSED = "CLOSED"
+
+
+class TicketPriority(StrEnum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    URGENT = "URGENT"
+
+
+class TicketCategory(StrEnum):
+    ORDER_STATUS = "ORDER_STATUS"
+    PAYMENT_ISSUE = "PAYMENT_ISSUE"
+    REFUND_REQUEST = "REFUND_REQUEST"
+    RETURN_REPLACEMENT = "RETURN_REPLACEMENT"
+    PRODUCT_QUESTION = "PRODUCT_QUESTION"
+    DELIVERY_ISSUE = "DELIVERY_ISSUE"
+    ACCOUNT_ISSUE = "ACCOUNT_ISSUE"
+    COMPLAINT = "COMPLAINT"
+    LEGAL_RISK = "LEGAL_RISK"
+    OTHER = "OTHER"
+
+
+class TicketSource(StrEnum):
+    SUPPORT_FORM = "SUPPORT_FORM"
+    WEB_WIDGET = "WEB_WIDGET"
+    EMAIL = "EMAIL"
+    WHATSAPP = "WHATSAPP"
+    API = "API"
+    MANUAL = "MANUAL"
+
+
+class TicketMessageSenderType(StrEnum):
+    CUSTOMER = "CUSTOMER"
+    AGENT = "AGENT"
+    AI = "AI"
+    SYSTEM = "SYSTEM"
+
+
+class TicketTimelineEventType(StrEnum):
+    TICKET_CREATED = "TICKET_CREATED"
+    MESSAGE_ADDED = "MESSAGE_ADDED"
+    INTERNAL_NOTE_ADDED = "INTERNAL_NOTE_ADDED"
+    STATUS_CHANGED = "STATUS_CHANGED"
+    PRIORITY_CHANGED = "PRIORITY_CHANGED"
+    CATEGORY_CHANGED = "CATEGORY_CHANGED"
+    ASSIGNEE_CHANGED = "ASSIGNEE_CHANGED"
+    CUSTOMER_UPDATED = "CUSTOMER_UPDATED"
