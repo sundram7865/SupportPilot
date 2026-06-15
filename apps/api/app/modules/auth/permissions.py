@@ -12,6 +12,12 @@ class Permission(StrEnum):
     TEAM_UPDATE = "team:update"
     TEAM_REMOVE = "team:remove"
 
+    TICKET_READ = "ticket:read"
+    TICKET_CREATE = "ticket:create"
+    TICKET_UPDATE = "ticket:update"
+    TICKET_ASSIGN = "ticket:assign"
+    TICKET_INTERNAL_NOTE = "ticket:internal_note"
+
     AUDIT_VIEW = "audit:view"
     ANALYTICS_VIEW = "analytics:view"
 
@@ -24,6 +30,11 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TEAM_INVITE,
         Permission.TEAM_UPDATE,
         Permission.TEAM_REMOVE,
+        Permission.TICKET_READ,
+        Permission.TICKET_CREATE,
+        Permission.TICKET_UPDATE,
+        Permission.TICKET_ASSIGN,
+        Permission.TICKET_INTERNAL_NOTE,
         Permission.AUDIT_VIEW,
         Permission.ANALYTICS_VIEW,
     },
@@ -33,19 +44,34 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TEAM_READ,
         Permission.TEAM_INVITE,
         Permission.TEAM_UPDATE,
+        Permission.TICKET_READ,
+        Permission.TICKET_CREATE,
+        Permission.TICKET_UPDATE,
+        Permission.TICKET_ASSIGN,
+        Permission.TICKET_INTERNAL_NOTE,
         Permission.AUDIT_VIEW,
         Permission.ANALYTICS_VIEW,
     },
     OrganizationRole.MANAGER: {
         Permission.ORGANIZATION_READ,
         Permission.TEAM_READ,
+        Permission.TICKET_READ,
+        Permission.TICKET_CREATE,
+        Permission.TICKET_UPDATE,
+        Permission.TICKET_ASSIGN,
+        Permission.TICKET_INTERNAL_NOTE,
         Permission.ANALYTICS_VIEW,
     },
     OrganizationRole.SUPPORT_AGENT: {
         Permission.ORGANIZATION_READ,
+        Permission.TICKET_READ,
+        Permission.TICKET_CREATE,
+        Permission.TICKET_UPDATE,
+        Permission.TICKET_INTERNAL_NOTE,
     },
     OrganizationRole.VIEWER: {
         Permission.ORGANIZATION_READ,
+        Permission.TICKET_READ,
     },
 }
 
