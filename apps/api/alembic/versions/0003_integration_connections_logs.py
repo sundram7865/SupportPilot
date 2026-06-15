@@ -1,6 +1,6 @@
 """integration connections and external api logs
 
-Revision ID: 0003_integration_connections_logs
+Revision ID: 0003_integrations
 Revises: 0002_auth_organizations_rbac
 Create Date: 2026-06-15
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "0003_integration_connections_logs"
+revision = "0003_integrations"
 down_revision = "0002_auth_organizations_rbac"
 branch_labels = None
 depends_on = None

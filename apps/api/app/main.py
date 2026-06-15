@@ -36,6 +36,6 @@ app.include_router(integrations_router)
 def root():
     return {
         "service": "SupportPilot API",
-        "phase": "1",
+        "phase": "3",
         "docs": "/docs",
     }
