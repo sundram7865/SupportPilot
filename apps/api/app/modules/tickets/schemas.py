@@ -9,6 +9,7 @@ from app.common.enums import (
     TicketPriority,
     TicketSource,
     TicketStatus,
+    TicketTransitionTrigger,
 )
 
 
@@ -34,6 +35,8 @@ class UpdateTicketRequest(BaseModel):
     description: str | None = Field(default=None, min_length=3)
 
     status: TicketStatus | None = None
+    status_reason: str | None = Field(default=None, max_length=2000)
+
     priority: TicketPriority | None = None
     category: TicketCategory | None = None
 
@@ -43,6 +46,13 @@ class UpdateTicketRequest(BaseModel):
     customer_email: EmailStr | None = None
     customer_phone: str | None = Field(default=None, max_length=50)
     external_order_id: str | None = Field(default=None, max_length=100)
+
+
+class TransitionTicketStatusRequest(BaseModel):
+    to_status: TicketStatus
+    reason: str | None = Field(default=None, max_length=2000)
+    trigger: TicketTransitionTrigger = TicketTransitionTrigger.AGENT_ACTION
+    metadata_json: dict | None = None
 
 
 class AddTicketMessageRequest(BaseModel):
@@ -87,6 +97,24 @@ class TicketTimelineEventResponse(BaseModel):
     created_at: datetime
 
 
+class TicketStatusTransitionResponse(BaseModel):
+    id: str
+    actor_user_id: str | None
+    from_status: str
+    to_status: str
+    trigger: str
+    reason: str | None
+    is_allowed: bool
+    blocked_reason: str | None
+    created_at: datetime
+
+
+class TicketLifecycleRulesResponse(BaseModel):
+    transitions: dict[str, list[str]]
+    terminal_statuses: list[str]
+    reopen_allowed_from: list[str]
+
+
 class TicketListItemResponse(BaseModel):
     id: str
     ticket_number: str
@@ -110,6 +138,10 @@ class TicketDetailResponse(BaseModel):
     subject: str
     description: str
     status: str
+    status_changed_at: datetime | None
+    status_changed_by_user_id: str | None
+    status_reason: str | None
+
     priority: str
     category: str
     source: str
@@ -135,6 +167,7 @@ class TicketDetailResponse(BaseModel):
     messages: list[TicketMessageResponse]
     internal_notes: list[TicketInternalNoteResponse]
     timeline_events: list[TicketTimelineEventResponse]
+    status_transitions: list[TicketStatusTransitionResponse]
 
 
 class TicketListResponse(BaseModel):
