@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.modules.tickets.router import router as tickets_router
 from app.core.logging import configure_logging
 from app.modules.auth.router import router as auth_router
 from app.modules.health.router import router as health_router
@@ -12,7 +12,7 @@ configure_logging()
 app = FastAPI(
     title="SupportPilot API",
     description="Agentic AI customer support platform for e-commerce brands.",
-    version="0.1.0-phase-2",
+    version="0.1.0-phase-4",
 )
 
 app.add_middleware(
@@ -30,7 +30,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(organizations_router)
 app.include_router(integrations_router)
-
+app.include_router(tickets_router)
 
 @app.get("/")
 def root():
