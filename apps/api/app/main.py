@@ -31,7 +31,7 @@ app.include_router(auth_router)
 app.include_router(organizations_router)
 app.include_router(integrations_router)
 app.include_router(tickets_router)
-
+app.include_router(tickets_router)
 @app.get("/")
 def root():
     return {
