@@ -94,3 +94,27 @@ class TicketTransitionTrigger(StrEnum):
     CUSTOMER_REPLY = "CUSTOMER_REPLY"
     SYSTEM_POLICY = "SYSTEM_POLICY"
     APPROVAL_DECISION = "APPROVAL_DECISION"
+
+
+class KnowledgeDocumentType(StrEnum):
+    POLICY = "POLICY"
+    FAQ = "FAQ"
+    SOP = "SOP"
+    MACRO = "MACRO"
+    PRODUCT_INFO = "PRODUCT_INFO"
+    SHIPPING_POLICY = "SHIPPING_POLICY"
+    REFUND_POLICY = "REFUND_POLICY"
+    RETURN_POLICY = "RETURN_POLICY"
+    OTHER = "OTHER"
+
+
+class KnowledgeDocumentStatus(StrEnum):
+    DRAFT = "DRAFT"
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
+
+
+class KnowledgeIngestionStatus(StrEnum):
+    PENDING = "PENDING"
+    INGESTED = "INGESTED"
+    FAILED = "FAILED"

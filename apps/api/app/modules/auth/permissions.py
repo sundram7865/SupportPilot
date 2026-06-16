@@ -18,6 +18,12 @@ class Permission(StrEnum):
     TICKET_ASSIGN = "ticket:assign"
     TICKET_INTERNAL_NOTE = "ticket:internal_note"
 
+    KNOWLEDGE_READ = "knowledge:read"
+    KNOWLEDGE_CREATE = "knowledge:create"
+    KNOWLEDGE_UPDATE = "knowledge:update"
+    KNOWLEDGE_DELETE = "knowledge:delete"
+    KNOWLEDGE_INGEST = "knowledge:ingest"
+
     AUDIT_VIEW = "audit:view"
     ANALYTICS_VIEW = "analytics:view"
 
@@ -35,6 +41,11 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TICKET_UPDATE,
         Permission.TICKET_ASSIGN,
         Permission.TICKET_INTERNAL_NOTE,
+        Permission.KNOWLEDGE_READ,
+        Permission.KNOWLEDGE_CREATE,
+        Permission.KNOWLEDGE_UPDATE,
+        Permission.KNOWLEDGE_DELETE,
+        Permission.KNOWLEDGE_INGEST,
         Permission.AUDIT_VIEW,
         Permission.ANALYTICS_VIEW,
     },
@@ -49,6 +60,11 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TICKET_UPDATE,
         Permission.TICKET_ASSIGN,
         Permission.TICKET_INTERNAL_NOTE,
+        Permission.KNOWLEDGE_READ,
+        Permission.KNOWLEDGE_CREATE,
+        Permission.KNOWLEDGE_UPDATE,
+        Permission.KNOWLEDGE_DELETE,
+        Permission.KNOWLEDGE_INGEST,
         Permission.AUDIT_VIEW,
         Permission.ANALYTICS_VIEW,
     },
@@ -60,6 +76,10 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TICKET_UPDATE,
         Permission.TICKET_ASSIGN,
         Permission.TICKET_INTERNAL_NOTE,
+        Permission.KNOWLEDGE_READ,
+        Permission.KNOWLEDGE_CREATE,
+        Permission.KNOWLEDGE_UPDATE,
+        Permission.KNOWLEDGE_INGEST,
         Permission.ANALYTICS_VIEW,
     },
     OrganizationRole.SUPPORT_AGENT: {
@@ -68,10 +88,12 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TICKET_CREATE,
         Permission.TICKET_UPDATE,
         Permission.TICKET_INTERNAL_NOTE,
+        Permission.KNOWLEDGE_READ,
     },
     OrganizationRole.VIEWER: {
         Permission.ORGANIZATION_READ,
         Permission.TICKET_READ,
+        Permission.KNOWLEDGE_READ,
     },
 }
 
