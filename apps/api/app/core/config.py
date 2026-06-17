@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     integration_secret_key: str
     clerk_issuer: str | None = None
     clerk_jwks_url: str | None = None
+    ai_provider: str = "mock"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-1.5-flash"
     model_config=SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

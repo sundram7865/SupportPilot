@@ -13,3 +13,6 @@ python-slugify==8.0.4
 email-validator==2.2.0
 cryptography==44.0.0
 pgvector==0.3.6
+langgraph==0.2.60
+langchain-core==0.3.28
+google-generativeai==0.8.3
