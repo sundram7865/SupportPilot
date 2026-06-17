@@ -97,12 +97,23 @@ async def execute_tool(
     validate_ticket_scope(db, organization.id, ticket_id)
 
     existing_execution = get_existing_execution_by_idempotency_key(
-        db=db,
-        organization_id=organization.id,
-        idempotency_key=idempotency_key,
-    )
+    db=db,
+    organization_id=organization.id,
+    idempotency_key=idempotency_key,
+)
 
     if existing_execution:
+        same_tool = existing_execution.tool_name == tool_name
+        same_ticket = existing_execution.ticket_id == ticket_id
+        same_agent_run = existing_execution.agent_run_id == agent_run_id
+        same_args = existing_execution.input_args == args
+
+        if not all([same_tool, same_ticket, same_agent_run, same_args]):
+            raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key was already used with different tool input.",
+        )
+
         return existing_execution
 
     tool_definition = get_tool_definition(tool_name)
