@@ -24,6 +24,9 @@ class Permission(StrEnum):
     KNOWLEDGE_DELETE = "knowledge:delete"
     KNOWLEDGE_INGEST = "knowledge:ingest"
 
+    AGENT_RUN = "agent:run"
+    AGENT_READ = "agent:read"
+
     AUDIT_VIEW = "audit:view"
     ANALYTICS_VIEW = "analytics:view"
 
@@ -46,6 +49,8 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.KNOWLEDGE_UPDATE,
         Permission.KNOWLEDGE_DELETE,
         Permission.KNOWLEDGE_INGEST,
+        Permission.AGENT_RUN,
+        Permission.AGENT_READ,
         Permission.AUDIT_VIEW,
         Permission.ANALYTICS_VIEW,
     },
@@ -65,6 +70,8 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.KNOWLEDGE_UPDATE,
         Permission.KNOWLEDGE_DELETE,
         Permission.KNOWLEDGE_INGEST,
+        Permission.AGENT_RUN,
+        Permission.AGENT_READ,
         Permission.AUDIT_VIEW,
         Permission.ANALYTICS_VIEW,
     },
@@ -80,6 +87,8 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.KNOWLEDGE_CREATE,
         Permission.KNOWLEDGE_UPDATE,
         Permission.KNOWLEDGE_INGEST,
+        Permission.AGENT_RUN,
+        Permission.AGENT_READ,
         Permission.ANALYTICS_VIEW,
     },
     OrganizationRole.SUPPORT_AGENT: {
@@ -89,11 +98,14 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TICKET_UPDATE,
         Permission.TICKET_INTERNAL_NOTE,
         Permission.KNOWLEDGE_READ,
+        Permission.AGENT_RUN,
+        Permission.AGENT_READ,
     },
     OrganizationRole.VIEWER: {
         Permission.ORGANIZATION_READ,
         Permission.TICKET_READ,
         Permission.KNOWLEDGE_READ,
+        Permission.AGENT_READ,
     },
 }
 
