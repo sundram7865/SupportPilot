@@ -10,6 +10,8 @@ from app.modules.knowledge.router import router as knowledge_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.tickets.router import router as tickets_router
 from app.modules.tools.router import router as tools_router
+from app.modules.approvals.router import router as approvals_router
+
 
 configure_logging()
 
@@ -38,6 +40,7 @@ app.include_router(tickets_router)
 app.include_router(knowledge_router)
 app.include_router(agent_router)
 app.include_router(tools_router)
+app.include_router(approvals_router)
 
 
 @app.get("/")
