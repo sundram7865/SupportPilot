@@ -29,6 +29,9 @@ class Permission(StrEnum):
 
     AUDIT_VIEW = "audit:view"
     ANALYTICS_VIEW = "analytics:view"
+    
+    TOOL_READ = "tool:read"
+    TOOL_EXECUTE = "tool:execute"
 
 
 ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
@@ -53,6 +56,8 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.AGENT_READ,
         Permission.AUDIT_VIEW,
         Permission.ANALYTICS_VIEW,
+        Permission.TOOL_READ,
+        Permission.TOOL_EXECUTE,
     },
     OrganizationRole.ADMIN: {
         Permission.ORGANIZATION_READ,
@@ -74,6 +79,8 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.AGENT_READ,
         Permission.AUDIT_VIEW,
         Permission.ANALYTICS_VIEW,
+        Permission.TOOL_READ,
+        Permission.TOOL_EXECUTE,
     },
     OrganizationRole.MANAGER: {
         Permission.ORGANIZATION_READ,
@@ -90,6 +97,8 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.AGENT_RUN,
         Permission.AGENT_READ,
         Permission.ANALYTICS_VIEW,
+        Permission.TOOL_READ,
+        Permission.TOOL_EXECUTE,
     },
     OrganizationRole.SUPPORT_AGENT: {
         Permission.ORGANIZATION_READ,
@@ -99,13 +108,14 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TICKET_INTERNAL_NOTE,
         Permission.KNOWLEDGE_READ,
         Permission.AGENT_RUN,
-        Permission.AGENT_READ,
+        Permission.AGENT_READ
     },
     OrganizationRole.VIEWER: {
         Permission.ORGANIZATION_READ,
         Permission.TICKET_READ,
         Permission.KNOWLEDGE_READ,
         Permission.AGENT_READ,
+        Permission.TOOL_READ
     },
 }
 
