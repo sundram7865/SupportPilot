@@ -264,3 +264,105 @@ async def execute_safe_tools_from_agent_run(
         executions.append(execution)
 
     return executions
+
+
+async def execute_approved_tool_execution(
+    db: Session,
+    organization: Organization,
+    execution: ToolExecution,
+    approved_by_user_id: UUID | None,
+) -> ToolExecution:
+    tool_definition = get_tool_definition(execution.tool_name)
+
+    if not tool_definition.requires_approval:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This tool execution does not require approval.",
+        )
+
+    if execution.approval_status != ToolApprovalStatus.APPROVED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tool execution is not approved.",
+        )
+
+    if execution.status == ToolExecutionStatus.SUCCESS.value:
+        return execution
+
+    started_at = time.perf_counter()
+
+    execution.status = ToolExecutionStatus.STARTED.value
+    execution.error_message = None
+
+    add_tool_timeline_event(
+        db=db,
+        organization_id=organization.id,
+        ticket_id=execution.ticket_id,
+        actor_user_id=approved_by_user_id,
+        event_type=TicketTimelineEventType.APPROVED_TOOL_EXECUTION_STARTED,
+        title="Approved tool execution started",
+        description=f"Approved tool {execution.tool_name} started.",
+    )
+
+    db.commit()
+    db.refresh(execution)
+
+    try:
+        if execution.tool_name == ToolName.URBANKART_REQUEST_REFUND.value:
+            output = await execute_urbankart_request_refund(
+                db=db,
+                organization=organization,
+                args=execution.input_args or {},
+                support_ticket_id=execution.ticket_id,
+                idempotency_key=execution.idempotency_key or str(execution.id),
+            )
+        elif execution.tool_name == ToolName.URBANKART_GET_ORDER_CONTEXT.value:
+            output = await execute_urbankart_get_order_context(
+                db=db,
+                organization=organization,
+                args=execution.input_args or {},
+            )
+        else:
+            raise ValueError(f"No executor configured for tool: {execution.tool_name}")
+
+        execution.status = ToolExecutionStatus.SUCCESS.value
+        execution.output_json = output
+        execution.error_message = None
+        execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
+        execution.completed_at = datetime.now(timezone.utc)
+
+        add_tool_timeline_event(
+            db=db,
+            organization_id=organization.id,
+            ticket_id=execution.ticket_id,
+            actor_user_id=approved_by_user_id,
+            event_type=TicketTimelineEventType.APPROVED_TOOL_EXECUTION_COMPLETED,
+            title="Approved tool execution completed",
+            description=f"Approved tool {execution.tool_name} completed successfully.",
+        )
+
+        db.commit()
+        db.refresh(execution)
+
+        return execution
+
+    except Exception as exc:
+        execution.status = ToolExecutionStatus.FAILED.value
+        execution.error_message = str(exc)
+        execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
+        execution.completed_at = datetime.now(timezone.utc)
+
+        add_tool_timeline_event(
+            db=db,
+            organization_id=organization.id,
+            ticket_id=execution.ticket_id,
+            actor_user_id=approved_by_user_id,
+            event_type=TicketTimelineEventType.APPROVED_TOOL_EXECUTION_FAILED,
+            title="Approved tool execution failed",
+            description=str(exc),
+        )
+
+        db.commit()
+        db.refresh(execution)
+
+        return execution
