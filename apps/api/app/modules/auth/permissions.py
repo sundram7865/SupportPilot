@@ -32,6 +32,9 @@ class Permission(StrEnum):
     
     TOOL_READ = "tool:read"
     TOOL_EXECUTE = "tool:execute"
+    APPROVAL_READ = "approval:read"
+    APPROVAL_REQUEST = "approval:request"
+    APPROVAL_DECIDE = "approval:decide"
 
 
 ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
@@ -58,6 +61,9 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.ANALYTICS_VIEW,
         Permission.TOOL_READ,
         Permission.TOOL_EXECUTE,
+        Permission.APPROVAL_READ,
+        Permission.APPROVAL_REQUEST,
+        Permission.APPROVAL_DECIDE
     },
     OrganizationRole.ADMIN: {
         Permission.ORGANIZATION_READ,
@@ -81,6 +87,9 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.ANALYTICS_VIEW,
         Permission.TOOL_READ,
         Permission.TOOL_EXECUTE,
+        Permission.APPROVAL_READ,
+        Permission.APPROVAL_REQUEST,
+        Permission.APPROVAL_DECIDE
     },
     OrganizationRole.MANAGER: {
         Permission.ORGANIZATION_READ,
@@ -99,6 +108,9 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.ANALYTICS_VIEW,
         Permission.TOOL_READ,
         Permission.TOOL_EXECUTE,
+        Permission.APPROVAL_READ,
+        Permission.APPROVAL_REQUEST,
+        Permission.APPROVAL_DECIDE
     },
     OrganizationRole.SUPPORT_AGENT: {
         Permission.ORGANIZATION_READ,
@@ -108,14 +120,17 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TICKET_INTERNAL_NOTE,
         Permission.KNOWLEDGE_READ,
         Permission.AGENT_RUN,
-        Permission.AGENT_READ
+        Permission.AGENT_READ,
+        Permission.APPROVAL_READ,
+        Permission.APPROVAL_REQUEST,
     },
     OrganizationRole.VIEWER: {
         Permission.ORGANIZATION_READ,
         Permission.TICKET_READ,
         Permission.KNOWLEDGE_READ,
         Permission.AGENT_READ,
-        Permission.TOOL_READ
+        Permission.TOOL_READ,
+        Permission.APPROVAL_READ,
     },
 }
 
