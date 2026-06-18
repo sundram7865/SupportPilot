@@ -4,7 +4,7 @@ from uuid import UUID
 
 import redis.asyncio as redis
 
-from app.core.config import settings
+from app.core.config import get_settings
 
 
 REDIS_CHANNEL_ORGANIZATION_PREFIX = "supportpilot:org"
@@ -30,6 +30,7 @@ def organization_channel(organization_id: UUID | str) -> str:
 
 
 async def get_redis_client():
+    settings=get_settings()
     return redis.from_url(
         settings.redis_url,
         encoding="utf-8",
