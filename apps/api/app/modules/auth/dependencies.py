@@ -1,54 +1,61 @@
-from typing import Callable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db.session import get_db
-from app.modules.auth.permissions import Permission, role_has_permission
-from app.modules.auth.security import AuthContext, get_auth_context_from_request
+from app.modules.auth.permissions import ROLE_PERMISSIONS, Permission
+from app.modules.auth.clerk import verify_clerk_token
 from app.modules.organizations.models import Organization, OrganizationMember
 from app.modules.users.models import User
 
+bearer_scheme = HTTPBearer(auto_error=False)
 
-def get_or_create_current_user(
-    auth_context: AuthContext = Depends(get_auth_context_from_request),
-    db: Session = Depends(get_db),
+
+def normalize_status(value) -> str:
+    if hasattr(value, "value"):
+        return value.value
+    return str(value)
+
+
+def get_or_create_user(
+    db: Session,
+    external_user_id: str,
+    email: str,
+    name: str | None = None,
+    avatar_url: str | None = None,
 ) -> User:
-    user = None
-
-    if auth_context.clerk_user_id:
-        user = db.scalar(
-            select(User).where(User.clerk_user_id == auth_context.clerk_user_id)
-        )
-
-    if not user and auth_context.email:
-        user = db.scalar(select(User).where(User.email == auth_context.email))
+    user = db.scalar(
+        select(User).where(User.clerk_user_id == external_user_id)
+    )
 
     if user:
-        updated = False
-
-        if auth_context.clerk_user_id and user.clerk_user_id != auth_context.clerk_user_id:
-            user.clerk_user_id = auth_context.clerk_user_id
-            updated = True
-
-        if auth_context.name and user.name != auth_context.name:
-            user.name = auth_context.name
-            updated = True
-
-        if updated:
-            db.commit()
-            db.refresh(user)
-
+        user.email = email
+        user.name = name or user.name
+        user.avatar_url = avatar_url or user.avatar_url
+        db.commit()
+        db.refresh(user)
         return user
 
-    email = auth_context.email or f"{auth_context.clerk_user_id}@dev.local"
+    existing_email_user = db.scalar(select(User).where(User.email == email))
+
+    if existing_email_user:
+        existing_email_user.clerk_user_id = external_user_id
+        existing_email_user.name = name or existing_email_user.name
+        existing_email_user.avatar_url = avatar_url or existing_email_user.avatar_url
+        db.commit()
+        db.refresh(existing_email_user)
+        return existing_email_user
 
     user = User(
-        clerk_user_id=auth_context.clerk_user_id,
+        id=uuid4(),
+        clerk_user_id=external_user_id,
         email=email,
-        name=auth_context.name,
+        name=name,
+        avatar_url=avatar_url,
     )
 
     db.add(user)
@@ -58,11 +65,91 @@ def get_or_create_current_user(
     return user
 
 
-def get_current_membership(
+def extract_email_from_claims(payload: dict) -> str:
+    email = payload.get("email")
+
+    if email:
+        return email
+
+    claims = payload.get("claims") or {}
+    email = claims.get("email")
+
+    if email:
+        return email
+
+    sub = payload.get("sub")
+
+    return f"{sub}@clerk.local"
+
+
+def extract_name_from_claims(payload: dict) -> str | None:
+    name = payload.get("name")
+
+    if name:
+        return name
+
+    claims = payload.get("claims") or {}
+    first_name = claims.get("first_name")
+    last_name = claims.get("last_name")
+
+    full_name = " ".join([part for part in [first_name, last_name] if part])
+
+    return full_name or None
+
+
+def get_or_create_current_user(
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    x_dev_user_id: str | None = Header(default=None),
+    x_dev_email: str | None = Header(default=None),
+    x_dev_name: str | None = Header(default=None),
+) -> User:
+    settings = get_settings()
+
+    if credentials and credentials.scheme.lower() == "bearer":
+        payload = verify_clerk_token(credentials.credentials)
+
+        clerk_user_id = payload.get("sub")
+
+        if not clerk_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Clerk token has no user id.",
+            )
+
+        email = extract_email_from_claims(payload)
+        name = extract_name_from_claims(payload)
+
+        return get_or_create_user(
+            db=db,
+            external_user_id=clerk_user_id,
+            email=email,
+            name=name,
+        )
+
+    if settings.dev_auth_enabled:
+        dev_user_id = x_dev_user_id or "dev-owner-1"
+        dev_email = x_dev_email or "owner@urbankart.demo"
+        dev_name = x_dev_name or "UrbanKart Owner"
+
+        return get_or_create_user(
+            db=db,
+            external_user_id=dev_user_id,
+            email=dev_email,
+            name=dev_name,
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required.",
+    )
+
+
+def get_current_organization(
     x_organization_id: str | None = Header(default=None),
     current_user: User = Depends(get_or_create_current_user),
     db: Session = Depends(get_db),
-) -> OrganizationMember:
+) -> Organization:
     if not x_organization_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -79,9 +166,8 @@ def get_current_membership(
 
     membership = db.scalar(
         select(OrganizationMember)
-        .where(OrganizationMember.user_id == current_user.id)
         .where(OrganizationMember.organization_id == organization_id)
-        .where(OrganizationMember.status == "ACTIVE")
+        .where(OrganizationMember.user_id == current_user.id)
     )
 
     if not membership:
@@ -90,13 +176,15 @@ def get_current_membership(
             detail="User is not a member of this organization.",
         )
 
-    return membership
+    if normalize_status(membership.status) != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization membership is not active.",
+        )
 
-def get_current_organization(
-    membership: OrganizationMember = Depends(get_current_membership),
-    db: Session = Depends(get_db),
-) -> Organization:
-    organization = db.get(Organization, membership.organization_id)
+    organization = db.scalar(
+        select(Organization).where(Organization.id == organization_id)
+    )
 
     if not organization:
         raise HTTPException(
@@ -107,14 +195,41 @@ def get_current_organization(
     return organization
 
 
-def require_permission(permission: Permission) -> Callable:
+def get_current_membership(
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(get_or_create_current_user),
+    db: Session = Depends(get_db),
+) -> OrganizationMember:
+    membership = db.scalar(
+        select(OrganizationMember)
+        .where(OrganizationMember.organization_id == organization.id)
+        .where(OrganizationMember.user_id == current_user.id)
+    )
+
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is not a member of this organization.",
+        )
+
+    return membership
+
+
+def require_permission(permission: Permission):
     def dependency(
         membership: OrganizationMember = Depends(get_current_membership),
     ) -> OrganizationMember:
-        if not role_has_permission(membership.role, permission):
+        role = membership.role
+
+        if hasattr(role, "value"):
+            role = role.value
+
+        permissions = ROLE_PERMISSIONS.get(role, set())
+
+        if permission not in permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Missing permission: {permission.value}",
+                detail="Missing required permission.",
             )
 
         return membership
