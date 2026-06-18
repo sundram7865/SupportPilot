@@ -35,6 +35,10 @@ class Permission(StrEnum):
     APPROVAL_READ = "approval:read"
     APPROVAL_REQUEST = "approval:request"
     APPROVAL_DECIDE = "approval:decide"
+    REPLY_READ = "reply:read"
+    REPLY_DRAFT = "reply:draft"
+    REPLY_SEND = "reply:send"
+    REPLY_APPROVE = "reply:approve"
 
 
 ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
@@ -63,7 +67,11 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TOOL_EXECUTE,
         Permission.APPROVAL_READ,
         Permission.APPROVAL_REQUEST,
-        Permission.APPROVAL_DECIDE
+        Permission.APPROVAL_DECIDE,
+        Permission.REPLY_READ,
+        Permission.REPLY_DRAFT,
+        Permission.REPLY_SEND,
+        Permission.REPLY_APPROVE
     },
     OrganizationRole.ADMIN: {
         Permission.ORGANIZATION_READ,
@@ -89,7 +97,11 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TOOL_EXECUTE,
         Permission.APPROVAL_READ,
         Permission.APPROVAL_REQUEST,
-        Permission.APPROVAL_DECIDE
+        Permission.APPROVAL_DECIDE,
+        Permission.REPLY_READ,
+        Permission.REPLY_DRAFT,
+        Permission.REPLY_SEND,
+        Permission.REPLY_APPROVE
     },
     OrganizationRole.MANAGER: {
         Permission.ORGANIZATION_READ,
@@ -110,7 +122,11 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.TOOL_EXECUTE,
         Permission.APPROVAL_READ,
         Permission.APPROVAL_REQUEST,
-        Permission.APPROVAL_DECIDE
+        Permission.APPROVAL_DECIDE,
+        Permission.REPLY_READ,
+        Permission.REPLY_DRAFT,
+        Permission.REPLY_SEND,
+        Permission.REPLY_APPROVE
     },
     OrganizationRole.SUPPORT_AGENT: {
         Permission.ORGANIZATION_READ,
@@ -123,6 +139,9 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.AGENT_READ,
         Permission.APPROVAL_READ,
         Permission.APPROVAL_REQUEST,
+        Permission.REPLY_READ,
+        Permission.REPLY_DRAFT,
+        Permission.REPLY_SEND,
     },
     OrganizationRole.VIEWER: {
         Permission.ORGANIZATION_READ,
@@ -131,6 +150,7 @@ ROLE_PERMISSIONS: dict[OrganizationRole, set[Permission]] = {
         Permission.AGENT_READ,
         Permission.TOOL_READ,
         Permission.APPROVAL_READ,
+        Permission.REPLY_READ
     },
 }
 
