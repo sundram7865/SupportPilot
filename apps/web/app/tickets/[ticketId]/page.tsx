@@ -1,9 +1,11 @@
-import TicketDetailClient from "./ticket-detail-client";
+import { TicketWorkspace } from "@/components/ticket/TicketWorkspace";
 
-export default function TicketDetailPage({
+export default async function TicketPage({
   params,
 }: {
-  params: { ticketId: string };
+  params: Promise<{ ticketId: string }>;
 }) {
-  return <TicketDetailClient ticketId={params.ticketId} />;
+  const { ticketId } = await params;
+
+  return <TicketWorkspace ticketId={ticketId} />;
 }
