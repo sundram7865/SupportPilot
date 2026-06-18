@@ -12,27 +12,92 @@ export function getBaseDevHeaders(): Record<string, string> {
   };
 }
 
-export function getOrgId(): string | null {
+export function getStoredOrgId(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem("supportpilot.orgId");
 }
 
-export function setOrgId(orgId: string) {
+export function setStoredOrgId(orgId: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem("supportpilot.orgId", orgId);
 }
 
-export function getHeaders(options?: {
-  orgId?: string | null;
-  json?: boolean;
-}): Record<string, string> {
-  const orgId = options?.orgId ?? getOrgId();
+function extractOrgId(me: any): string | null {
+  if (me?.organizations?.[0]?.id) {
+    return me.organizations[0].id;
+  }
+
+  if (me?.memberships?.[0]?.organization_id) {
+    return me.memberships[0].organization_id;
+  }
+
+  if (me?.memberships?.[0]?.organization?.id) {
+    return me.memberships[0].organization.id;
+  }
+
+  if (me?.organization?.id) {
+    return me.organization.id;
+  }
+
+  return null;
+}
+
+export async function bootstrapAuth(): Promise<{
+  me: AuthMeResponse;
+  orgId: string;
+}> {
+  const response = await fetch(`${API_URL}/auth/me`, {
+    method: "GET",
+    headers: getBaseDevHeaders(),
+    cache: "no-store",
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.detail || "Failed to bootstrap auth");
+  }
+
+  const orgId = extractOrgId(data);
+
+  if (!orgId) {
+    throw new Error(
+      "No organization found for dev user. Create/sync organization first from backend."
+    );
+  }
+
+  setStoredOrgId(orgId);
+
+  return {
+    me: data,
+    orgId,
+  };
+}
+
+async function resolveOrgId(path: string, explicitOrgId?: string | null) {
+  if (explicitOrgId === null) return null;
+  if (explicitOrgId) return explicitOrgId;
+  if (path === "/auth/me") return null;
+
+  const stored = getStoredOrgId();
+
+  if (stored) return stored;
+
+  const boot = await bootstrapAuth();
+  return boot.orgId;
+}
+
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit & { orgId?: string | null } = {}
+): Promise<T> {
+  const orgId = await resolveOrgId(path, options.orgId);
 
   const headers: Record<string, string> = {
     ...getBaseDevHeaders(),
   };
 
-  if (options?.json !== false) {
+  if (!(options.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
 
@@ -40,20 +105,10 @@ export function getHeaders(options?: {
     headers["x-organization-id"] = orgId;
   }
 
-  return headers;
-}
-
-export async function apiFetch<T>(
-  path: string,
-  options: RequestInit & { orgId?: string | null } = {}
-): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      ...getHeaders({
-        orgId: options.orgId,
-        json: !(options.body instanceof FormData),
-      }),
+      ...headers,
       ...(options.headers || {}),
     },
     cache: "no-store",
@@ -83,42 +138,23 @@ export async function apiFetch<T>(
   return data as T;
 }
 
-export async function bootstrapAuth(): Promise<AuthMeResponse> {
-  const me = await apiFetch<AuthMeResponse>("/auth/me", {
-    method: "GET",
-    orgId: null,
-  });
+export function getHeaders(options?: {
+  orgId?: string | null;
+  json?: boolean;
+}): Record<string, string> {
+  const orgId = options?.orgId ?? getStoredOrgId();
 
-  const firstOrgId = me.organizations?.[0]?.id;
+  const headers: Record<string, string> = {
+    ...getBaseDevHeaders(),
+  };
 
-  if (firstOrgId) {
-    setOrgId(firstOrgId);
+  if (options?.json !== false) {
+    headers["Content-Type"] = "application/json";
   }
 
-  return me;
-}
-
-export async function getApiHealth() {
-  const response = await fetch(`${API_URL}/health`, {
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch API health");
+  if (orgId) {
+    headers["x-organization-id"] = orgId;
   }
 
-  return response.json();
-}
-
-export async function testUrbanKartConnection() {
-  const response = await fetch(`${API_URL}/integrations/urbankart/test-connection`, {
-    method: "POST",
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to test UrbanKart connection");
-  }
-
-  return response.json();
+  return headers;
 }

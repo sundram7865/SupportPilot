@@ -1,6 +1,6 @@
 export type Organization = {
   id: string;
-  name: string;
+  name?: string;
   slug?: string;
   role?: string;
 };
@@ -11,7 +11,13 @@ export type AuthMeResponse = {
     email: string;
     name?: string | null;
   };
-  organizations: Organization[];
+  organizations?: Organization[];
+  memberships?: Array<{
+    organization_id?: string;
+    role?: string;
+    organization?: Organization;
+  }>;
+  organization?: Organization;
 };
 
 export type Ticket = {
