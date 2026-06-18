@@ -1,20 +1,20 @@
 import type { Metadata } from "next";
-import { ClerkProvider } from "@clerk/nextjs";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "SupportPilot",
-  description: "Agentic AI customer support platform for e-commerce brands"
+  description: "Agentic AI customer support dashboard",
 };
 
 export default function RootLayout({
-  children
-}: Readonly<{ children: React.ReactNode }>) {
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <ClerkProvider>
-      <html lang="en">
-        <body>{children}</body>
-      </html>
-    </ClerkProvider>
+    <html lang="en">
+      <body>{children}</body>
+    </html>
   );
 }
