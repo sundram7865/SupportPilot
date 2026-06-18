@@ -14,6 +14,7 @@ from app.common.enums import (
 )
 from app.modules.approvals.models import ApprovalRequest
 from app.modules.organizations.models import Organization
+from app.modules.realtime.publisher import publish_timeline_event_after_commit
 from app.modules.tickets.models import TicketTimelineEvent
 from app.modules.tools.models import ToolExecution
 from app.modules.tools.service import execute_approved_tool_execution
@@ -27,9 +28,9 @@ def add_approval_timeline_event(
     event_type: TicketTimelineEventType,
     title: str,
     description: str | None = None,
-) -> None:
+) -> TicketTimelineEvent | None:
     if not ticket_id:
-        return
+        return None
 
     event = TicketTimelineEvent(
         organization_id=organization_id,
@@ -41,6 +42,26 @@ def add_approval_timeline_event(
     )
 
     db.add(event)
+    return event
+
+
+def publish_if_exists(
+    db: Session,
+    organization_id: UUID,
+    ticket_id: UUID | None,
+    event: TicketTimelineEvent | None,
+) -> None:
+    if not event or not ticket_id:
+        return
+
+    db.refresh(event)
+
+    publish_timeline_event_after_commit(
+        db=db,
+        organization_id=organization_id,
+        ticket_id=ticket_id,
+        event=event,
+    )
 
 
 def get_approval_or_404(
@@ -140,7 +161,7 @@ def create_approval_request_for_tool_execution(
 
     db.add(approval)
 
-    add_approval_timeline_event(
+    timeline_event = add_approval_timeline_event(
         db=db,
         organization_id=organization_id,
         ticket_id=execution.ticket_id,
@@ -152,6 +173,7 @@ def create_approval_request_for_tool_execution(
 
     db.commit()
     db.refresh(approval)
+    publish_if_exists(db, organization_id, execution.ticket_id, timeline_event)
 
     return approval
 
@@ -180,7 +202,7 @@ async def approve_request(
     approval.decision_reason = decision_reason
     approval.decided_at = datetime.now(timezone.utc)
 
-    add_approval_timeline_event(
+    timeline_event = add_approval_timeline_event(
         db=db,
         organization_id=organization.id,
         ticket_id=approval.ticket_id,
@@ -192,6 +214,7 @@ async def approve_request(
 
     db.commit()
     db.refresh(approval)
+    publish_if_exists(db, organization.id, approval.ticket_id, timeline_event)
 
     if approval.request_type == ApprovalRequestType.TOOL_EXECUTION.value:
         if not approval.tool_execution_id:
@@ -207,6 +230,7 @@ async def approve_request(
         )
 
         execution.approval_status = ToolApprovalStatus.APPROVED.value
+
         db.commit()
         db.refresh(execution)
 
@@ -262,7 +286,7 @@ def reject_request(
         )
         execution.approval_status = ToolApprovalStatus.REJECTED.value
 
-    add_approval_timeline_event(
+    timeline_event = add_approval_timeline_event(
         db=db,
         organization_id=organization_id,
         ticket_id=approval.ticket_id,
@@ -274,5 +298,6 @@ def reject_request(
 
     db.commit()
     db.refresh(approval)
+    publish_if_exists(db, organization_id, approval.ticket_id, timeline_event)
 
     return approval

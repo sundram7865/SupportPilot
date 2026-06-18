@@ -9,6 +9,7 @@ from app.modules.health.router import router as health_router
 from app.modules.integrations.router import router as integrations_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.organizations.router import router as organizations_router
+from app.modules.realtime.router import router as realtime_router
 from app.modules.replies.router import router as replies_router
 from app.modules.tickets.router import router as tickets_router
 from app.modules.tools.router import router as tools_router
@@ -18,7 +19,7 @@ configure_logging()
 app = FastAPI(
     title="SupportPilot API",
     description="Agentic AI customer support platform for e-commerce brands.",
-    version="0.10.0-phase-10",
+    version="0.11.0-phase-11",
 )
 
 app.add_middleware(
@@ -42,12 +43,13 @@ app.include_router(agent_router)
 app.include_router(tools_router)
 app.include_router(approvals_router)
 app.include_router(replies_router)
+app.include_router(realtime_router)
 
 
 @app.get("/")
 def root():
     return {
         "service": "SupportPilot API",
-        "phase": "10",
+        "phase": "11",
         "docs": "/docs",
     }

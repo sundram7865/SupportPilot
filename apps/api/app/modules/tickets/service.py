@@ -11,6 +11,7 @@ from app.common.enums import (
     TicketTimelineEventType,
     TicketTransitionTrigger,
 )
+from app.modules.realtime.publisher import publish_timeline_event_after_commit
 from app.modules.tickets.models import (
     Ticket,
     TicketInternalNote,
@@ -56,8 +57,26 @@ def add_timeline_event(
     )
 
     db.add(event)
-
     return event
+
+
+def publish_if_exists(
+    db: Session,
+    organization_id: UUID,
+    ticket_id: UUID,
+    event: TicketTimelineEvent | None,
+) -> None:
+    if not event:
+        return
+
+    db.refresh(event)
+
+    publish_timeline_event_after_commit(
+        db=db,
+        organization_id=organization_id,
+        ticket_id=ticket_id,
+        event=event,
+    )
 
 
 def add_public_message(
@@ -84,7 +103,7 @@ def add_public_message(
 
     db.add(message)
 
-    add_timeline_event(
+    timeline_event = add_timeline_event(
         db=db,
         organization_id=ticket.organization_id,
         ticket_id=ticket.id,
@@ -97,6 +116,15 @@ def add_public_message(
     if sender_type in {TicketMessageSenderType.AGENT, TicketMessageSenderType.AI}:
         if ticket.first_response_at is None:
             ticket.first_response_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(message)
+    publish_if_exists(
+        db=db,
+        organization_id=ticket.organization_id,
+        ticket_id=ticket.id,
+        event=timeline_event,
+    )
 
     return message
 
@@ -118,7 +146,7 @@ def add_internal_note(
 
     db.add(note)
 
-    add_timeline_event(
+    timeline_event = add_timeline_event(
         db=db,
         organization_id=ticket.organization_id,
         ticket_id=ticket.id,
@@ -126,6 +154,15 @@ def add_internal_note(
         event_type=TicketTimelineEventType.INTERNAL_NOTE_ADDED,
         title="Internal note added",
         description="A private internal note was added.",
+    )
+
+    db.commit()
+    db.refresh(note)
+    publish_if_exists(
+        db=db,
+        organization_id=ticket.organization_id,
+        ticket_id=ticket.id,
+        event=timeline_event,
     )
 
     return note
@@ -171,7 +208,6 @@ def record_status_transition(
     )
 
     db.add(transition)
-
     return transition
 
 
@@ -185,13 +221,14 @@ def transition_ticket_status(
     metadata_json: dict | None = None,
 ) -> TicketStatusTransition:
     from_status = ticket.status
+
     validation = validate_status_transition(
         from_status=from_status,
         to_status=to_status.value,
     )
 
     if not validation.allowed:
-        record_status_transition(
+        transition = record_status_transition(
             db=db,
             ticket=ticket,
             actor_user_id=actor_user_id,
@@ -204,7 +241,7 @@ def transition_ticket_status(
             metadata_json=metadata_json,
         )
 
-        add_timeline_event(
+        timeline_event = add_timeline_event(
             db=db,
             organization_id=ticket.organization_id,
             ticket_id=ticket.id,
@@ -217,6 +254,13 @@ def transition_ticket_status(
         )
 
         db.commit()
+        db.refresh(transition)
+        publish_if_exists(
+            db=db,
+            organization_id=ticket.organization_id,
+            ticket_id=ticket.id,
+            event=timeline_event,
+        )
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -242,7 +286,7 @@ def transition_ticket_status(
 
     apply_status_side_effects(ticket, to_status.value)
 
-    add_timeline_event(
+    timeline_event = add_timeline_event(
         db=db,
         organization_id=ticket.organization_id,
         ticket_id=ticket.id,
@@ -252,6 +296,16 @@ def transition_ticket_status(
         description=reason,
         old_value=from_status,
         new_value=to_status.value,
+    )
+
+    db.commit()
+    db.refresh(transition)
+    db.refresh(ticket)
+    publish_if_exists(
+        db=db,
+        organization_id=ticket.organization_id,
+        ticket_id=ticket.id,
+        event=timeline_event,
     )
 
     return transition

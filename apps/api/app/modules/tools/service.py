@@ -14,6 +14,7 @@ from app.common.enums import (
 )
 from app.modules.agent.models import AgentRun
 from app.modules.organizations.models import Organization
+from app.modules.realtime.publisher import publish_timeline_event_after_commit
 from app.modules.tickets.models import Ticket, TicketTimelineEvent
 from app.modules.tools.models import ToolExecution
 from app.modules.tools.registry import get_tool_definition
@@ -31,9 +32,9 @@ def add_tool_timeline_event(
     event_type: TicketTimelineEventType,
     title: str,
     description: str | None = None,
-) -> None:
+) -> TicketTimelineEvent | None:
     if not ticket_id:
-        return
+        return None
 
     event = TicketTimelineEvent(
         organization_id=organization_id,
@@ -45,6 +46,26 @@ def add_tool_timeline_event(
     )
 
     db.add(event)
+    return event
+
+
+def publish_if_exists(
+    db: Session,
+    organization_id: UUID,
+    ticket_id: UUID | None,
+    event: TicketTimelineEvent | None,
+) -> None:
+    if not event or not ticket_id:
+        return
+
+    db.refresh(event)
+
+    publish_timeline_event_after_commit(
+        db=db,
+        organization_id=organization_id,
+        ticket_id=ticket_id,
+        event=event,
+    )
 
 
 def validate_ticket_scope(
@@ -65,6 +86,27 @@ def validate_ticket_scope(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ticket not found.",
+        )
+
+
+def validate_agent_run_scope(
+    db: Session,
+    organization_id: UUID,
+    agent_run_id: UUID | None,
+) -> None:
+    if agent_run_id is None:
+        return
+
+    agent_run = db.scalar(
+        select(AgentRun)
+        .where(AgentRun.id == agent_run_id)
+        .where(AgentRun.organization_id == organization_id)
+    )
+
+    if not agent_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent run not found.",
         )
 
 
@@ -95,12 +137,13 @@ async def execute_tool(
     allow_risky_execution: bool = False,
 ) -> ToolExecution:
     validate_ticket_scope(db, organization.id, ticket_id)
+    validate_agent_run_scope(db, organization.id, agent_run_id)
 
     existing_execution = get_existing_execution_by_idempotency_key(
-    db=db,
-    organization_id=organization.id,
-    idempotency_key=idempotency_key,
-)
+        db=db,
+        organization_id=organization.id,
+        idempotency_key=idempotency_key,
+    )
 
     if existing_execution:
         same_tool = existing_execution.tool_name == tool_name
@@ -110,9 +153,9 @@ async def execute_tool(
 
         if not all([same_tool, same_ticket, same_agent_run, same_args]):
             raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Idempotency key was already used with different tool input.",
-        )
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Idempotency key was already used with different tool input.",
+            )
 
         return existing_execution
 
@@ -139,7 +182,7 @@ async def execute_tool(
 
     db.add(execution)
 
-    add_tool_timeline_event(
+    timeline_event = add_tool_timeline_event(
         db=db,
         organization_id=organization.id,
         ticket_id=ticket_id,
@@ -151,6 +194,7 @@ async def execute_tool(
 
     db.commit()
     db.refresh(execution)
+    publish_if_exists(db, organization.id, ticket_id, timeline_event)
 
     if tool_definition.requires_approval and not allow_risky_execution:
         execution.status = ToolExecutionStatus.BLOCKED_APPROVAL_REQUIRED.value
@@ -158,7 +202,7 @@ async def execute_tool(
         execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
         execution.completed_at = datetime.now(timezone.utc)
 
-        add_tool_timeline_event(
+        timeline_event = add_tool_timeline_event(
             db=db,
             organization_id=organization.id,
             ticket_id=ticket_id,
@@ -170,6 +214,7 @@ async def execute_tool(
 
         db.commit()
         db.refresh(execution)
+        publish_if_exists(db, organization.id, ticket_id, timeline_event)
 
         return execution
 
@@ -180,6 +225,7 @@ async def execute_tool(
                 organization=organization,
                 args=args,
             )
+
         elif tool_name == ToolName.URBANKART_REQUEST_REFUND.value:
             output = await execute_urbankart_request_refund(
                 db=db,
@@ -188,6 +234,7 @@ async def execute_tool(
                 support_ticket_id=ticket_id,
                 idempotency_key=idempotency_key or str(execution.id),
             )
+
         else:
             raise ValueError(f"No executor configured for tool: {tool_name}")
 
@@ -196,7 +243,7 @@ async def execute_tool(
         execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
         execution.completed_at = datetime.now(timezone.utc)
 
-        add_tool_timeline_event(
+        timeline_event = add_tool_timeline_event(
             db=db,
             organization_id=organization.id,
             ticket_id=ticket_id,
@@ -208,6 +255,7 @@ async def execute_tool(
 
         db.commit()
         db.refresh(execution)
+        publish_if_exists(db, organization.id, ticket_id, timeline_event)
 
         return execution
 
@@ -217,7 +265,7 @@ async def execute_tool(
         execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
         execution.completed_at = datetime.now(timezone.utc)
 
-        add_tool_timeline_event(
+        timeline_event = add_tool_timeline_event(
             db=db,
             organization_id=organization.id,
             ticket_id=ticket_id,
@@ -229,6 +277,7 @@ async def execute_tool(
 
         db.commit()
         db.refresh(execution)
+        publish_if_exists(db, organization.id, ticket_id, timeline_event)
 
         return execution
 
@@ -245,7 +294,9 @@ async def execute_safe_tools_from_agent_run(
     for index, planned_tool in enumerate(planned_tools):
         tool_name = planned_tool.get("tool_name")
         args = planned_tool.get("args") or {}
-        requires_approval = bool(planned_tool.get("requires_approval"))
+
+        if not tool_name:
+            continue
 
         idempotency_key = f"agent_run:{agent_run.id}:tool:{index}:{tool_name}"
 
@@ -294,7 +345,7 @@ async def execute_approved_tool_execution(
     execution.status = ToolExecutionStatus.STARTED.value
     execution.error_message = None
 
-    add_tool_timeline_event(
+    timeline_event = add_tool_timeline_event(
         db=db,
         organization_id=organization.id,
         ticket_id=execution.ticket_id,
@@ -306,6 +357,7 @@ async def execute_approved_tool_execution(
 
     db.commit()
     db.refresh(execution)
+    publish_if_exists(db, organization.id, execution.ticket_id, timeline_event)
 
     try:
         if execution.tool_name == ToolName.URBANKART_REQUEST_REFUND.value:
@@ -316,12 +368,14 @@ async def execute_approved_tool_execution(
                 support_ticket_id=execution.ticket_id,
                 idempotency_key=execution.idempotency_key or str(execution.id),
             )
+
         elif execution.tool_name == ToolName.URBANKART_GET_ORDER_CONTEXT.value:
             output = await execute_urbankart_get_order_context(
                 db=db,
                 organization=organization,
                 args=execution.input_args or {},
             )
+
         else:
             raise ValueError(f"No executor configured for tool: {execution.tool_name}")
 
@@ -331,7 +385,7 @@ async def execute_approved_tool_execution(
         execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
         execution.completed_at = datetime.now(timezone.utc)
 
-        add_tool_timeline_event(
+        timeline_event = add_tool_timeline_event(
             db=db,
             organization_id=organization.id,
             ticket_id=execution.ticket_id,
@@ -343,6 +397,7 @@ async def execute_approved_tool_execution(
 
         db.commit()
         db.refresh(execution)
+        publish_if_exists(db, organization.id, execution.ticket_id, timeline_event)
 
         return execution
 
@@ -352,7 +407,7 @@ async def execute_approved_tool_execution(
         execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
         execution.completed_at = datetime.now(timezone.utc)
 
-        add_tool_timeline_event(
+        timeline_event = add_tool_timeline_event(
             db=db,
             organization_id=organization.id,
             ticket_id=execution.ticket_id,
@@ -364,5 +419,6 @@ async def execute_approved_tool_execution(
 
         db.commit()
         db.refresh(execution)
+        publish_if_exists(db, organization.id, execution.ticket_id, timeline_event)
 
         return execution

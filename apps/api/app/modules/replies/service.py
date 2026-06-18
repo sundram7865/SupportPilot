@@ -17,6 +17,7 @@ from app.common.enums import (
 from app.modules.agent.models import AgentRun
 from app.modules.approvals.models import ApprovalRequest
 from app.modules.organizations.models import Organization
+from app.modules.realtime.publisher import publish_timeline_event_after_commit
 from app.modules.replies.models import CustomerReplyDraft
 from app.modules.tickets.models import Ticket, TicketMessage, TicketTimelineEvent
 
@@ -29,7 +30,7 @@ def add_reply_timeline_event(
     event_type: TicketTimelineEventType,
     title: str,
     description: str | None = None,
-) -> None:
+) -> TicketTimelineEvent:
     event = TicketTimelineEvent(
         organization_id=organization_id,
         ticket_id=ticket_id,
@@ -38,7 +39,28 @@ def add_reply_timeline_event(
         title=title,
         description=description,
     )
+
     db.add(event)
+    return event
+
+
+def publish_if_exists(
+    db: Session,
+    organization_id: UUID,
+    ticket_id: UUID,
+    event: TicketTimelineEvent | None,
+) -> None:
+    if not event:
+        return
+
+    db.refresh(event)
+
+    publish_timeline_event_after_commit(
+        db=db,
+        organization_id=organization_id,
+        ticket_id=ticket_id,
+        event=event,
+    )
 
 
 def get_ticket_or_404(
@@ -129,7 +151,7 @@ def create_reply_draft(
 
     db.add(draft)
 
-    add_reply_timeline_event(
+    timeline_event = add_reply_timeline_event(
         db=db,
         organization_id=organization.id,
         ticket_id=ticket_id,
@@ -141,6 +163,7 @@ def create_reply_draft(
 
     db.commit()
     db.refresh(draft)
+    publish_if_exists(db, organization.id, ticket_id, timeline_event)
 
     return draft
 
@@ -225,7 +248,7 @@ def update_reply_draft(
     draft.rejected_by_user_id = None
     draft.rejected_at = None
 
-    add_reply_timeline_event(
+    timeline_event = add_reply_timeline_event(
         db=db,
         organization_id=organization_id,
         ticket_id=draft.ticket_id,
@@ -237,6 +260,7 @@ def update_reply_draft(
 
     db.commit()
     db.refresh(draft)
+    publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
 
     return draft
 
@@ -286,7 +310,7 @@ def submit_reply_draft_for_approval(
     draft.status = CustomerReplyDraftStatus.PENDING_APPROVAL.value
     draft.approval_request_id = approval.id
 
-    add_reply_timeline_event(
+    timeline_event = add_reply_timeline_event(
         db=db,
         organization_id=organization_id,
         ticket_id=draft.ticket_id,
@@ -298,6 +322,7 @@ def submit_reply_draft_for_approval(
 
     db.commit()
     db.refresh(draft)
+    publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
 
     return draft
 
@@ -341,7 +366,7 @@ def approve_reply_draft(
                 "reply_status": CustomerReplyDraftStatus.APPROVED.value,
             }
 
-    add_reply_timeline_event(
+    timeline_event = add_reply_timeline_event(
         db=db,
         organization_id=organization_id,
         ticket_id=draft.ticket_id,
@@ -353,6 +378,7 @@ def approve_reply_draft(
 
     db.commit()
     db.refresh(draft)
+    publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
 
     return draft
 
@@ -396,7 +422,7 @@ def reject_reply_draft(
                 "reply_status": CustomerReplyDraftStatus.REJECTED.value,
             }
 
-    add_reply_timeline_event(
+    timeline_event = add_reply_timeline_event(
         db=db,
         organization_id=organization_id,
         ticket_id=draft.ticket_id,
@@ -408,6 +434,7 @@ def reject_reply_draft(
 
     db.commit()
     db.refresh(draft)
+    publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
 
     return draft
 
@@ -418,11 +445,6 @@ def create_ticket_message_from_reply_draft(
     draft: CustomerReplyDraft,
     sent_by_user_id: UUID | None,
 ) -> TicketMessage:
-    """
-    This helper supports small field-name differences in your TicketMessage model.
-    It tries body/content/message/message_text for message content.
-    """
-
     message_kwargs = {
         "organization_id": organization_id,
         "ticket_id": draft.ticket_id,
@@ -474,11 +496,6 @@ def send_reply_draft(
             detail="Only approved or draft replies can be sent.",
         )
 
-    if draft.status == CustomerReplyDraftStatus.DRAFT.value:
-        # For now, manual agent drafts can be sent directly.
-        # If you want strict approval for every reply, remove DRAFT from allowed statuses above.
-        pass
-
     message = create_ticket_message_from_reply_draft(
         db=db,
         organization_id=organization_id,
@@ -494,7 +511,7 @@ def send_reply_draft(
     draft.send_notes = send_notes
     draft.sent_at = now
 
-    add_reply_timeline_event(
+    timeline_event = add_reply_timeline_event(
         db=db,
         organization_id=organization_id,
         ticket_id=draft.ticket_id,
@@ -506,5 +523,6 @@ def send_reply_draft(
 
     db.commit()
     db.refresh(draft)
+    publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
 
     return draft
