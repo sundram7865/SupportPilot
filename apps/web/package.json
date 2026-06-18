@@ -3,14 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev --hostname 0.0.0.0 --port 3000",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "start": "next start --hostname 0.0.0.0 --port 3000",
+    "lint": "next lint"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.2",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@tanstack/react-query": "^5.62.7",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
