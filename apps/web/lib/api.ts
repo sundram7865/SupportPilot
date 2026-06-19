@@ -17,9 +17,16 @@ export function getStoredOrgId(): string | null {
   return window.localStorage.getItem("supportpilot.orgId");
 }
 
+export const getOrgId = getStoredOrgId;
+
 export function setStoredOrgId(orgId: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem("supportpilot.orgId", orgId);
+}
+
+export function clearStoredOrgId() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem("supportpilot.orgId");
 }
 
 function extractOrgId(me: any): string | null {
@@ -42,59 +49,96 @@ function extractOrgId(me: any): string | null {
   return null;
 }
 
-export async function bootstrapAuth(): Promise<{
+export async function bootstrapAuth(
+  getToken?: () => Promise<string | null>
+): Promise<{
   me: AuthMeResponse;
   orgId: string;
 }> {
-  const response = await fetch(`${API_URL}/auth/me`, {
+  let me = await apiFetch<AuthMeResponse>("/auth/me", {
     method: "GET",
-    headers: getBaseDevHeaders(),
-    cache: "no-store",
+    orgId: null,
+    getToken,
   });
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data?.detail || "Failed to bootstrap auth");
-  }
-
-  const orgId = extractOrgId(data);
+  let orgId = extractOrgId(me);
 
   if (!orgId) {
-    throw new Error(
-      "No organization found for dev user. Create/sync organization first from backend."
-    );
+    await apiFetch("/auth/bootstrap-org", {
+      method: "POST",
+      orgId: null,
+      getToken,
+      body: JSON.stringify({}),
+    });
+
+    me = await apiFetch<AuthMeResponse>("/auth/me", {
+      method: "GET",
+      orgId: null,
+      getToken,
+    });
+
+    orgId = extractOrgId(me);
+  }
+
+  if (!orgId) {
+    throw new Error("No organization found for current user.");
   }
 
   setStoredOrgId(orgId);
 
   return {
-    me: data,
+    me,
     orgId,
   };
 }
 
-async function resolveOrgId(path: string, explicitOrgId?: string | null) {
+async function resolveOrgId(
+  path: string,
+  explicitOrgId?: string | null,
+  getToken?: () => Promise<string | null>
+) {
   if (explicitOrgId === null) return null;
   if (explicitOrgId) return explicitOrgId;
-  if (path === "/auth/me") return null;
+  if (path === "/auth/me" || path === "/auth/bootstrap-org") return null;
 
   const stored = getStoredOrgId();
 
   if (stored) return stored;
 
-  const boot = await bootstrapAuth();
+  const boot = await bootstrapAuth(getToken);
   return boot.orgId;
+}
+
+async function getAuthHeader(
+  getToken?: () => Promise<string | null>
+): Promise<Record<string, string>> {
+  if (!getToken) {
+    return getBaseDevHeaders();
+  }
+
+  const token = await getToken();
+
+  if (!token) {
+    return getBaseDevHeaders();
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
 }
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { orgId?: string | null } = {}
+  options: RequestInit & {
+    orgId?: string | null;
+    getToken?: () => Promise<string | null>;
+  } = {}
 ): Promise<T> {
-  const orgId = await resolveOrgId(path, options.orgId);
+  const orgId = await resolveOrgId(path, options.orgId, options.getToken);
+  const authHeaders = await getAuthHeader(options.getToken);
 
   const headers: Record<string, string> = {
-    ...getBaseDevHeaders(),
+    ...authHeaders,
   };
 
   if (!(options.body instanceof FormData)) {
@@ -138,14 +182,16 @@ export async function apiFetch<T>(
   return data as T;
 }
 
-export function getHeaders(options?: {
+export async function getHeaders(options?: {
   orgId?: string | null;
   json?: boolean;
-}): Record<string, string> {
+  getToken?: () => Promise<string | null>;
+}): Promise<Record<string, string>> {
   const orgId = options?.orgId ?? getStoredOrgId();
+  const authHeaders = await getAuthHeader(options?.getToken);
 
   const headers: Record<string, string> = {
-    ...getBaseDevHeaders(),
+    ...authHeaders,
   };
 
   if (options?.json !== false) {

@@ -11,17 +11,23 @@ export type RealtimePayload = {
   created_at?: string;
 };
 
-export function streamTicketTimeline(params: {
+export async function streamTicketTimeline(params: {
   ticketId: string;
+  getToken?: () => Promise<string | null>;
   onEvent: (payload: RealtimePayload) => void;
   onError?: (error: unknown) => void;
   signal?: AbortSignal;
 }) {
+  const headers = await getHeaders({
+    json: false,
+    getToken: params.getToken,
+  });
+
   return fetchEventSource(
     `${API_URL}/realtime/tickets/${params.ticketId}/timeline/stream`,
     {
       method: "GET",
-      headers: getHeaders({ json: false }),
+      headers,
       signal: params.signal,
       onmessage(message) {
         if (!message.data) return;
@@ -44,14 +50,20 @@ export function streamTicketTimeline(params: {
   );
 }
 
-export function streamOrganization(params: {
+export async function streamOrganization(params: {
+  getToken?: () => Promise<string | null>;
   onEvent: (payload: RealtimePayload) => void;
   onError?: (error: unknown) => void;
   signal?: AbortSignal;
 }) {
+  const headers = await getHeaders({
+    json: false,
+    getToken: params.getToken,
+  });
+
   return fetchEventSource(`${API_URL}/realtime/organizations/stream`, {
     method: "GET",
-    headers: getHeaders({ json: false }),
+    headers,
     signal: params.signal,
     onmessage(message) {
       if (!message.data) return;
