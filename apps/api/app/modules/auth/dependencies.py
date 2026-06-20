@@ -106,27 +106,25 @@ def get_or_create_current_user(
 ) -> User:
     settings = get_settings()
 
-    if credentials and credentials.scheme.lower() == "bearer":
+    if credentials and credentials.credentials:
         payload = verify_clerk_token(credentials.credentials)
 
         clerk_user_id = payload.get("sub")
 
         if not clerk_user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Clerk token has no user id.",
-            )
+            raise HTTPException(status_code=401, detail="Invalid Clerk token.")
 
-        email = extract_email_from_claims(payload)
-        name = extract_name_from_claims(payload)
-
-        return get_or_create_user(
-            db=db,
-            external_user_id=clerk_user_id,
-            email=email,
-            name=name,
+        user = db.scalar(
+            select(User).where(User.clerk_user_id == clerk_user_id)
         )
 
+        if user:
+            return user
+
+        raise HTTPException(
+        status_code=409,
+        detail="Auth sync required before accessing this resource.",
+        )
     if settings.dev_auth_enabled:
         dev_user_id = x_dev_user_id or "dev-owner-1"
         dev_email = x_dev_email or "owner@urbankart.demo"
