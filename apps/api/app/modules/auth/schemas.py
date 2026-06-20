@@ -1,11 +1,11 @@
 from pydantic import BaseModel, EmailStr
 
 
-class SyncUserRequest(BaseModel):
+class AuthSyncRequest(BaseModel):
+    clerk_user_id: str
     email: EmailStr
     name: str | None = None
     avatar_url: str | None = None
-
 
 class AuthenticatedUserResponse(BaseModel):
     id: str
