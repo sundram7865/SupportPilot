@@ -1,7 +1,8 @@
 from uuid import UUID, uuid4
-from sqlalchemy import func, select
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from slugify import slugify
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.enums import MemberStatus, OrganizationRole
@@ -13,15 +14,18 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.auth.permissions import Permission
-from app.modules.organizations.models import Organization, OrganizationMember,OrganizationInvitation
+from app.modules.organizations.models import (
+    Organization,
+    OrganizationInvitation,
+    OrganizationMember,
+)
 from app.modules.organizations.schemas import (
     CreateOrganizationRequest,
     InviteMemberRequest,
-    OrganizationMemberResponse,
+    InviteMemberResultResponse,
     OrganizationResponse,
     UpdateMemberRoleRequest,
     UpdateOrganizationRequest,
-    InviteMemberResultResponse,
 )
 from app.modules.users.models import User
 
@@ -32,6 +36,64 @@ def enum_value(value):
     if hasattr(value, "value"):
         return value.value
     return value
+
+
+def serialize_organization(organization: Organization) -> dict:
+    return {
+        "id": str(organization.id),
+        "name": organization.name,
+        "slug": organization.slug,
+        "support_email": organization.support_email,
+        "plan": organization.plan,
+    }
+
+
+def serialize_user(user: User | None) -> dict | None:
+    if not user:
+        return None
+
+    return {
+        "id": str(user.id),
+        "clerk_user_id": user.clerk_user_id,
+        "email": user.email,
+        "name": user.name,
+        "avatar_url": user.avatar_url,
+    }
+
+
+def serialize_member(member: OrganizationMember) -> dict:
+    return {
+        "id": str(member.id),
+        "organization_id": str(member.organization_id),
+        "user_id": str(member.user_id),
+        "role": enum_value(member.role),
+        "status": enum_value(member.status),
+        "user": serialize_user(member.user),
+    }
+
+
+def serialize_invitation(invitation: OrganizationInvitation) -> dict:
+    return {
+        "id": str(invitation.id),
+        "organization_id": str(invitation.organization_id),
+        "email": invitation.email,
+        "name": invitation.name,
+        "role": enum_value(invitation.role),
+        "status": enum_value(invitation.status),
+        "invited_by_user_id": str(invitation.invited_by_user_id)
+        if invitation.invited_by_user_id
+        else None,
+        "accepted_by_user_id": str(invitation.accepted_by_user_id)
+        if invitation.accepted_by_user_id
+        else None,
+        "accepted_at": invitation.accepted_at.isoformat()
+        if invitation.accepted_at
+        else None,
+        "created_at": invitation.created_at.isoformat()
+        if invitation.created_at
+        else None,
+    }
+
 
 def to_organization_response(organization: Organization) -> OrganizationResponse:
     return OrganizationResponse(
@@ -116,30 +178,19 @@ def update_current_org(
 
 @router.get(
     "/members",
-    response_model=list[OrganizationMemberResponse],
     dependencies=[Depends(require_permission(Permission.TEAM_READ))],
 )
 def list_members(
     organization: Organization = Depends(get_current_organization),
     db: Session = Depends(get_db),
 ):
-    rows = db.execute(
-        select(OrganizationMember, User)
-        .join(User, User.id == OrganizationMember.user_id)
+    members = db.scalars(
+        select(OrganizationMember)
         .where(OrganizationMember.organization_id == organization.id)
+        .order_by(OrganizationMember.created_at.asc())
     ).all()
 
-    return [
-        OrganizationMemberResponse(
-            id=str(member.id),
-            user_id=str(user.id),
-            email=user.email,
-            name=user.name,
-            role=member.role,
-            status=member.status,
-        )
-        for member, user in rows
-    ]
+    return [serialize_member(member) for member in members]
 
 
 @router.post(
@@ -161,8 +212,6 @@ def invite_member(
         select(User).where(func.lower(User.email) == email)
     )
 
-    # Case 1: User already signed up.
-    # Directly add ACTIVE membership.
     if existing_user:
         existing_membership = db.scalar(
             select(OrganizationMember)
@@ -189,8 +238,8 @@ def invite_member(
             id=uuid4(),
             organization_id=organization_id,
             user_id=existing_user.id,
-            role=payload.role,
-            status="ACTIVE",
+            role=enum_value(payload.role),
+            status=MemberStatus.ACTIVE.value,
         )
 
         db.add(membership)
@@ -211,8 +260,6 @@ def invite_member(
             "invitation": None,
         }
 
-    # Case 2: User has not signed up yet.
-    # Store only a pending invitation, not a fake user.
     existing_pending_invitation = db.scalar(
         select(OrganizationInvitation)
         .where(OrganizationInvitation.organization_id == organization_id)
@@ -241,7 +288,7 @@ def invite_member(
         organization_id=organization_id,
         email=email,
         name=payload.name,
-        role=payload.role,
+        role=enum_value(payload.role),
         status="PENDING",
         invited_by_user_id=invited_by_user_id,
     )
@@ -266,9 +313,28 @@ def invite_member(
     }
 
 
+@router.get(
+    "/invitations",
+    dependencies=[Depends(require_permission(Permission.TEAM_READ))],
+)
+def list_organization_invitations(
+    current_membership: OrganizationMember = Depends(get_current_membership),
+    db: Session = Depends(get_db),
+):
+    invitations = db.scalars(
+        select(OrganizationInvitation)
+        .where(
+            OrganizationInvitation.organization_id
+            == current_membership.organization_id
+        )
+        .order_by(OrganizationInvitation.created_at.desc())
+    ).all()
+
+    return [serialize_invitation(invitation) for invitation in invitations]
+
+
 @router.patch(
     "/members/{member_id}/role",
-    response_model=OrganizationMemberResponse,
     dependencies=[Depends(require_permission(Permission.TEAM_UPDATE))],
 )
 def update_member_role(
@@ -295,66 +361,23 @@ def update_member_role(
             detail="Owner role cannot be changed.",
         )
 
-    member.role = payload.role.value
+    member.role = enum_value(payload.role)
 
     db.commit()
     db.refresh(member)
 
-    user = db.get(User, member.user_id)
-
-    return OrganizationMemberResponse(
-        id=str(member.id),
-        user_id=str(user.id),
-        email=user.email,
-        name=user.name,
-        role=member.role,
-        status=member.status,
-    )
+    return serialize_member(member)
 
 
 @router.delete(
     "/members/{member_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission(Permission.TEAM_REMOVE))],
 )
-
-@router.get("/invitations")
-def list_organization_invitations(
-    current_membership: OrganizationMember = Depends(get_current_membership),
-    db: Session = Depends(get_db),
-):
-    invitations = db.scalars(
-        select(OrganizationInvitation)
-        .where(OrganizationInvitation.organization_id == current_membership.organization_id)
-        .order_by(OrganizationInvitation.created_at.desc())
-    ).all()
-
-    return [
-        {
-            "id": str(invitation.id),
-            "organization_id": str(invitation.organization_id),
-            "email": invitation.email,
-            "name": invitation.name,
-            "role": invitation.role,
-            "status": invitation.status,
-            "invited_by_user_id": str(invitation.invited_by_user_id)
-            if invitation.invited_by_user_id
-            else None,
-            "accepted_by_user_id": str(invitation.accepted_by_user_id)
-            if invitation.accepted_by_user_id
-            else None,
-            "accepted_at": invitation.accepted_at.isoformat()
-            if invitation.accepted_at
-            else None,
-            "created_at": invitation.created_at.isoformat()
-            if invitation.created_at
-            else None,
-        }
-        for invitation in invitations
-    ]
-
 def remove_member(
     member_id: UUID,
     organization: Organization = Depends(get_current_organization),
+    current_membership: OrganizationMember = Depends(get_current_membership),
     db: Session = Depends(get_db),
 ):
     member = db.scalar(
@@ -369,6 +392,12 @@ def remove_member(
             detail="Member not found.",
         )
 
+    if member.id == current_membership.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot remove yourself from the organization.",
+        )
+
     if member.role == OrganizationRole.OWNER.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -378,7 +407,4 @@ def remove_member(
     db.delete(member)
     db.commit()
 
-    return {
-        "success": True,
-        "message": "Member removed successfully.",
-    }
+    return None
