@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -12,6 +13,8 @@ import { unwrapItems } from "@/lib/collections";
 import type { AuthMeResponse, Ticket } from "@/types/api";
 
 export function DashboardClient() {
+  const { getToken, isSignedIn } = useAuth();
+
   const [me, setMe] = useState<AuthMeResponse | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -21,13 +24,16 @@ export function DashboardClient() {
     try {
       setError(null);
 
-      const boot = await bootstrapAuth();
+      const tokenGetter = isSignedIn ? getToken : undefined;
+      const boot = await bootstrapAuth(tokenGetter);
+
       setMe(boot.me);
       setOrgId(boot.orgId);
 
       const data = await apiFetch<Ticket[] | { items?: Ticket[] }>("/tickets", {
         method: "GET",
         orgId: boot.orgId,
+        getToken: tokenGetter,
       });
 
       setTickets(unwrapItems(data));
@@ -38,7 +44,7 @@ export function DashboardClient() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [isSignedIn]);
 
   return (
     <AppShell
@@ -66,7 +72,7 @@ export function DashboardClient() {
 
       {me ? (
         <div className="section" style={{ marginTop: 16 }}>
-          <div className="section-title">Dev User</div>
+          <div className="section-title">Current User</div>
           <pre className="code">{JSON.stringify(me.user, null, 2)}</pre>
         </div>
       ) : null}
