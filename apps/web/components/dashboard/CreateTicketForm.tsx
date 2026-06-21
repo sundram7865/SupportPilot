@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/nextjs";
 import { useState } from "react";
 
 import { Section } from "@/components/ui/Section";
@@ -23,6 +24,7 @@ export function CreateTicketForm({
   orgId: string | null;
   onCreated: (ticket: Ticket) => void;
 }) {
+  const { getToken, isSignedIn } = useAuth();
   const [form, setForm] = useState(defaultTicket);
   const [creating, setCreating] = useState(false);
 
@@ -35,6 +37,7 @@ export function CreateTicketForm({
       const ticket = await apiFetch<Ticket>("/tickets", {
         method: "POST",
         orgId,
+        getToken: isSignedIn ? getToken : undefined,
         body: JSON.stringify(form),
       });
 
