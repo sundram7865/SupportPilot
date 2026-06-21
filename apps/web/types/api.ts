@@ -166,3 +166,45 @@ export type InviteMemberResult = {
   membership?: OrganizationMember | null;
   invitation?: OrganizationInvitation | null;
 };
+
+export type IntegrationConnection = {
+  id: string;
+  organization_id: string;
+  provider: string;
+  base_url: string;
+  status: string;
+  last_health_status?: string | null;
+  last_health_message?: string | null;
+  last_checked_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type UrbanKartConnectionPayload = {
+  base_url: string;
+  api_key: string;
+};
+
+export type UrbanKartHealthResponse = {
+  success?: boolean;
+  status?: string;
+  message?: string;
+  provider?: string;
+  base_url?: string;
+  checked_at?: string | null;
+  details?: unknown;
+};
+
+export type ExternalApiLog = {
+  id: string;
+  organization_id: string;
+  provider?: string;
+  method?: string;
+  url?: string;
+  endpoint?: string;
+  status?: string;
+  status_code?: number | null;
+  duration_ms?: number | null;
+  error_message?: string | null;
+  created_at?: string | null;
+};
