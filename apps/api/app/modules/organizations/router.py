@@ -1,13 +1,13 @@
-from uuid import UUID
-
+from uuid import UUID, uuid4
+from sqlalchemy import func, select
 from fastapi import APIRouter, Depends, HTTPException, status
 from slugify import slugify
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.enums import MemberStatus, OrganizationRole
 from app.db.session import get_db
 from app.modules.auth.dependencies import (
+    get_current_membership,
     get_current_organization,
     get_or_create_current_user,
     require_permission,
@@ -21,11 +21,17 @@ from app.modules.organizations.schemas import (
     OrganizationResponse,
     UpdateMemberRoleRequest,
     UpdateOrganizationRequest,
+    InviteMemberResultResponse,
 )
 from app.modules.users.models import User
 
 router = APIRouter(prefix="/organizations", tags=["Organizations"])
 
+
+def enum_value(value):
+    if hasattr(value, "value"):
+        return value.value
+    return value
 
 def to_organization_response(organization: Organization) -> OrganizationResponse:
     return OrganizationResponse(
@@ -138,7 +144,7 @@ def list_members(
 
 @router.post(
     "/invite",
-    response_model=OrganizationMemberResponse,
+    response_model=InviteMemberResultResponse,
     dependencies=[Depends(require_permission(Permission.TEAM_INVITE))],
 )
 def invite_member(
@@ -155,6 +161,8 @@ def invite_member(
         select(User).where(func.lower(User.email) == email)
     )
 
+    # Case 1: User already signed up.
+    # Directly add ACTIVE membership.
     if existing_user:
         existing_membership = db.scalar(
             select(OrganizationMember)
@@ -171,9 +179,10 @@ def invite_member(
                     "id": str(existing_membership.id),
                     "organization_id": str(existing_membership.organization_id),
                     "user_id": str(existing_membership.user_id),
-                    "role": existing_membership.role,
-                    "status": existing_membership.status,
+                    "role": enum_value(existing_membership.role),
+                    "status": enum_value(existing_membership.status),
                 },
+                "invitation": None,
             }
 
         membership = OrganizationMember(
@@ -196,11 +205,14 @@ def invite_member(
                 "id": str(membership.id),
                 "organization_id": str(membership.organization_id),
                 "user_id": str(membership.user_id),
-                "role": membership.role,
-                "status": membership.status,
+                "role": enum_value(membership.role),
+                "status": enum_value(membership.status),
             },
+            "invitation": None,
         }
 
+    # Case 2: User has not signed up yet.
+    # Store only a pending invitation, not a fake user.
     existing_pending_invitation = db.scalar(
         select(OrganizationInvitation)
         .where(OrganizationInvitation.organization_id == organization_id)
@@ -213,13 +225,14 @@ def invite_member(
             "type": "invitation",
             "created": False,
             "message": "Invitation is already pending for this email.",
+            "membership": None,
             "invitation": {
                 "id": str(existing_pending_invitation.id),
                 "organization_id": str(existing_pending_invitation.organization_id),
                 "email": existing_pending_invitation.email,
                 "name": existing_pending_invitation.name,
-                "role": existing_pending_invitation.role,
-                "status": existing_pending_invitation.status,
+                "role": enum_value(existing_pending_invitation.role),
+                "status": enum_value(existing_pending_invitation.status),
             },
         }
 
@@ -241,16 +254,16 @@ def invite_member(
         "type": "invitation",
         "created": True,
         "message": "Invitation created. User will be added when they sign up.",
+        "membership": None,
         "invitation": {
             "id": str(invitation.id),
             "organization_id": str(invitation.organization_id),
             "email": invitation.email,
             "name": invitation.name,
-            "role": invitation.role,
-            "status": invitation.status,
+            "role": enum_value(invitation.role),
+            "status": enum_value(invitation.status),
         },
     }
-
 
 
 @router.patch(
