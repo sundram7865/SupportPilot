@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -13,17 +14,25 @@ import { statusTone } from "@/lib/format";
 import type { ApprovalRequest } from "@/types/api";
 
 export function ApprovalInbox() {
+  const { getToken, isSignedIn } = useAuth();
+
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     try {
       setError(null);
-      await bootstrapAuth();
+
+      const tokenGetter = isSignedIn ? getToken : undefined;
+
+      await bootstrapAuth(tokenGetter);
 
       const data = await apiFetch<ApprovalRequest[] | { items?: ApprovalRequest[] }>(
         "/approvals",
-        { method: "GET" }
+        {
+          method: "GET",
+          getToken: tokenGetter,
+        }
       );
 
       setApprovals(unwrapItems(data));
@@ -33,8 +42,11 @@ export function ApprovalInbox() {
   }
 
   async function decide(id: string, action: "approve" | "reject") {
+    const tokenGetter = isSignedIn ? getToken : undefined;
+
     await apiFetch(`/approvals/${id}/${action}`, {
       method: "POST",
+      getToken: tokenGetter,
       body: JSON.stringify({
         decision_reason: `${action}d from approval inbox.`,
       }),
@@ -45,7 +57,7 @@ export function ApprovalInbox() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [isSignedIn]);
 
   return (
     <AppShell
