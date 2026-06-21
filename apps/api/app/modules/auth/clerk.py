@@ -4,7 +4,28 @@ import httpx
 import jwt
 from fastapi import HTTPException, status
 from jwt import PyJWKClient
-from jwt.exceptions import InvalidTokenError
+from jwt.exceptions import InvalidTokenError,PyJWTError
+
+
+from app.core.config import get_settings
+
+
+@lru_cache()
+def get_jwks_client() -> PyJWKClient:
+    settings = get_settings()
+
+    if not settings.clerk_jwks_url:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="CLERK_JWKS_URL is not configured.",
+        )
+
+    return PyJWKClient(settings.clerk_jwks_url)
+
+
+from functools import lru_cache
+
+
 
 from app.core.config import get_settings
 
@@ -35,7 +56,7 @@ def verify_clerk_token(token: str) -> dict:
         jwks_client = get_jwks_client()
         signing_key = jwks_client.get_signing_key_from_jwt(token)
 
-        payload = jwt.decode(
+        return jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
@@ -43,16 +64,23 @@ def verify_clerk_token(token: str) -> dict:
             options={
                 "verify_aud": False,
             },
+            leeway=60,
         )
 
-        return payload
+    except HTTPException:
+        raise
 
-    except InvalidTokenError:
+    except (InvalidTokenError, PyJWTError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Clerk token.",
+            detail=f"Invalid Clerk token: {str(exc)}",
         )
 
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Clerk token verification failed: {str(exc)}",
+        )
 
 async def fetch_clerk_user_email(clerk_user_id: str, token: str) -> str | None:
     settings = get_settings()
