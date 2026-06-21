@@ -418,3 +418,9 @@ button {
   color: white;
   border: 1px solid #dc2626;
 }
+
+.textarea {
+  min-height: 180px;
+  resize: vertical;
+  line-height: 1.5;
+}

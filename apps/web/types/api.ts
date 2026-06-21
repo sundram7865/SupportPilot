@@ -208,3 +208,50 @@ export type ExternalApiLog = {
   error_message?: string | null;
   created_at?: string | null;
 };
+
+export type KnowledgeDocument = {
+  id: string;
+  organization_id?: string;
+  title: string;
+  document_type: string;
+  status: string;
+  content?: string | null;
+  source_url?: string | null;
+  version?: number | null;
+  ingestion_status?: string | null;
+  ingestion_error?: string | null;
+  chunk_count?: number | null;
+  metadata_json?: Record<string, unknown> | null;
+  created_by_user_id?: string | null;
+  updated_by_user_id?: string | null;
+  ingested_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type KnowledgeChunk = {
+  id: string;
+  document_id: string;
+  organization_id?: string;
+  chunk_index?: number;
+  content: string;
+  token_count?: number | null;
+  created_at?: string | null;
+};
+
+export type KnowledgeSearchResult = {
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
+  document_type: string;
+  chunk_index: number;
+  content: string;
+  score: number;
+};
+
+export type CreateKnowledgeDocumentPayload = {
+  title: string;
+  document_type: string;
+  content: string;
+  source_url?: string | null;
+};
