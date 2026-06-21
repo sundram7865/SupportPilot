@@ -1,22 +1,26 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 
+import { AuthSyncGate } from "@/components/auth/AuthSyncGate";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "SupportPilot",
-  description: "Agentic AI customer support dashboard",
+  description: "Agentic support workspace for ecommerce teams",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <ClerkProvider>
       <html lang="en">
-        <body>{children}</body>
+        <body>
+          <AuthSyncGate>{children}</AuthSyncGate>
+        </body>
       </html>
     </ClerkProvider>
   );
