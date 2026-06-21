@@ -56,6 +56,9 @@ export function AppShell({
           <Link className="nav-link" href="/settings/organization">
             Organization Settings
         </Link>
+        <Link className="nav-link" href="/settings/integrations">
+          Integration Settings
+        </Link>
         </nav>
 
         <div style={{ marginTop: 24 }}>
