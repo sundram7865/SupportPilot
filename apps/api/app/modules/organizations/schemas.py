@@ -38,3 +38,28 @@ class OrganizationMemberResponse(BaseModel):
     name: str | None
     role: str
     status: str
+    
+    
+class OrganizationInvitationResponse(BaseModel):
+    id: str
+    organization_id: str
+    email: str
+    name: str | None = None
+    role: str
+    status: str
+
+
+class OrganizationMembershipInviteResponse(BaseModel):
+    id: str
+    organization_id: str
+    user_id: str
+    role: str
+    status: str
+
+
+class InviteMemberResultResponse(BaseModel):
+    type: str
+    created: bool
+    message: str
+    membership: OrganizationMembershipInviteResponse | None = None
+    invitation: OrganizationInvitationResponse | None = None
