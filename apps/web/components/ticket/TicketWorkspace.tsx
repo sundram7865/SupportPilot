@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-
+import { useAuth } from "@clerk/nextjs";
 import { AppShell } from "@/components/layout/AppShell";
 import { Badge } from "@/components/ui/Badge";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
@@ -35,26 +35,42 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
   const [sseStatus, setSseStatus] = useState("connecting");
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
+  
+  const { getToken, isSignedIn } = useAuth();
+
+  const tokenGetter = isSignedIn ? getToken : undefined;
 
   const orderId = useMemo(() => {
     return ticket?.external_order_id || "ORD-1001";
   }, [ticket]);
-
+  
   async function loadAll() {
     const [ticketData, timelineData, toolData, approvalData, draftData] =
       await Promise.all([
-        apiFetch<Ticket>(`/tickets/${ticketId}`),
+        apiFetch<Ticket>(`/tickets/${ticketId}`,{
+        getToken: tokenGetter,
+       }
+          
+        ),
         apiFetch<TimelineEvent[] | { items?: TimelineEvent[] }>(
-          `/tickets/${ticketId}/timeline`
+          `/tickets/${ticketId}/timeline`,{
+        getToken: tokenGetter
+       }
         ),
         apiFetch<{ items?: ToolExecution[] }>(
-          `/tools/tickets/${ticketId}/executions`
+          `/tools/tickets/${ticketId}/executions`,{
+        getToken: tokenGetter,
+       }
         ),
         apiFetch<{ items?: ApprovalRequest[] }>(
-          `/approvals/tickets/${ticketId}`
+          `/approvals/tickets/${ticketId}`,{
+        getToken: tokenGetter,
+       }
         ),
         apiFetch<{ items?: ReplyDraft[] }>(
-          `/replies/tickets/${ticketId}/drafts`
+          `/replies/tickets/${ticketId}/drafts`,{
+        getToken: tokenGetter,
+       }
         ),
       ]);
 
@@ -86,6 +102,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
 
     streamTicketTimeline({
       ticketId,
+      getToken: tokenGetter,
       signal: controller.signal,
       onEvent(payload) {
         if (payload.type === "connected") {
