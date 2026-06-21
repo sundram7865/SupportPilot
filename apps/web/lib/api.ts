@@ -3,14 +3,12 @@ import type { AuthMeResponse } from "@/types/api";
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export function getBaseDevHeaders(): Record<string, string> {
-  return {
-    "x-dev-user-id": process.env.NEXT_PUBLIC_DEV_USER_ID || "dev-owner-1",
-    "x-dev-email":
-      process.env.NEXT_PUBLIC_DEV_EMAIL || "owner@urbankart.demo",
-    "x-dev-name": process.env.NEXT_PUBLIC_DEV_NAME || "UrbanKart Owner",
-  };
-}
+export type ClerkSyncPayload = {
+  clerk_user_id: string;
+  email: string;
+  name?: string | null;
+  avatar_url?: string | null;
+};
 
 export function getStoredOrgId(): string | null {
   if (typeof window === "undefined") return null;
@@ -29,32 +27,75 @@ export function clearStoredOrgId() {
   window.localStorage.removeItem("supportpilot.orgId");
 }
 
-function extractOrgId(me: any): string | null {
-  if (me?.organizations?.[0]?.id) {
+function getMembershipOrgIds(me: AuthMeResponse): string[] {
+  return (me.memberships || [])
+    .map((membership) => membership.organization_id)
+    .filter(Boolean) as string[];
+}
+
+function extractOrgId(me: AuthMeResponse): string | null {
+  const storedOrgId = getStoredOrgId();
+  const membershipOrgIds = getMembershipOrgIds(me);
+
+  if (storedOrgId && membershipOrgIds.includes(storedOrgId)) {
+    return storedOrgId;
+  }
+
+  if (me.organizations?.[0]?.id) {
     return me.organizations[0].id;
   }
 
-  if (me?.memberships?.[0]?.organization_id) {
+  if (me.memberships?.[0]?.organization_id) {
     return me.memberships[0].organization_id;
   }
 
-  if (me?.memberships?.[0]?.organization?.id) {
+  if (me.memberships?.[0]?.organization?.id) {
     return me.memberships[0].organization.id;
   }
 
-  if (me?.organization?.id) {
+  if (me.organization?.id) {
     return me.organization.id;
   }
 
   return null;
 }
 
+export async function syncAuthUser(
+  getToken: () => Promise<string | null>,
+  payload: ClerkSyncPayload
+): Promise<void> {
+  const token = await getToken();
+
+  if (!token) {
+    throw new Error("Missing Clerk token.");
+  }
+
+  const response = await fetch(`${API_URL}/auth/sync`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let message = `Auth sync failed with status ${response.status}`;
+
+    try {
+      const data = await response.json();
+      message = data?.detail || message;
+    } catch {
+      // Ignore parse error.
+    }
+
+    throw new Error(message);
+  }
+}
+
 export async function bootstrapAuth(
-  getToken?: () => Promise<string | null>
-): Promise<{
-  me: AuthMeResponse;
-  orgId: string;
-}> {
+  getToken: () => Promise<string | null>
+): Promise<{ me: AuthMeResponse; orgId: string }> {
   let me = await apiFetch<AuthMeResponse>("/auth/me", {
     method: "GET",
     orgId: null,
@@ -86,24 +127,36 @@ export async function bootstrapAuth(
 
   setStoredOrgId(orgId);
 
-  return {
-    me,
-    orgId,
-  };
+  return { me, orgId };
 }
 
 async function resolveOrgId(
   path: string,
-  explicitOrgId?: string | null,
+  explicitOrgId: string | null | undefined,
   getToken?: () => Promise<string | null>
-) {
-  if (explicitOrgId === null) return null;
-  if (explicitOrgId) return explicitOrgId;
-  if (path === "/auth/me" || path === "/auth/bootstrap-org") return null;
+): Promise<string | null> {
+  if (explicitOrgId !== undefined) {
+    return explicitOrgId;
+  }
 
-  const stored = getStoredOrgId();
+  if (
+    path.startsWith("/auth") ||
+    path === "/" ||
+    path.startsWith("/health") ||
+    path.startsWith("/ready")
+  ) {
+    return null;
+  }
 
-  if (stored) return stored;
+  const storedOrgId = getStoredOrgId();
+
+  if (storedOrgId) {
+    return storedOrgId;
+  }
+
+  if (!getToken) {
+    throw new Error("Missing Clerk token getter.");
+  }
 
   const boot = await bootstrapAuth(getToken);
   return boot.orgId;
@@ -113,13 +166,13 @@ async function getAuthHeader(
   getToken?: () => Promise<string | null>
 ): Promise<Record<string, string>> {
   if (!getToken) {
-    return getBaseDevHeaders();
+    throw new Error("Missing Clerk token getter.");
   }
 
   const token = await getToken();
 
   if (!token) {
-    return getBaseDevHeaders();
+    throw new Error("Missing Clerk token.");
   }
 
   return {
@@ -134,52 +187,42 @@ export async function apiFetch<T>(
     getToken?: () => Promise<string | null>;
   } = {}
 ): Promise<T> {
-  const orgId = await resolveOrgId(path, options.orgId, options.getToken);
-  const authHeaders = await getAuthHeader(options.getToken);
+  const { orgId, getToken, headers, ...fetchOptions } = options;
 
-  const headers: Record<string, string> = {
+  const resolvedOrgId = await resolveOrgId(path, orgId, getToken);
+
+  const authHeaders = await getAuthHeader(getToken);
+
+  const finalHeaders: Record<string, string> = {
     ...authHeaders,
+    ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+    ...(resolvedOrgId ? { "x-organization-id": resolvedOrgId } : {}),
+    ...(headers as Record<string, string> | undefined),
   };
 
-  if (!(options.body instanceof FormData)) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  if (orgId) {
-    headers["x-organization-id"] = orgId;
-  }
-
   const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      ...headers,
-      ...(options.headers || {}),
-    },
-    cache: "no-store",
+    ...fetchOptions,
+    headers: finalHeaders,
   });
 
-  const text = await response.text();
-
-  let data: any = null;
-
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
-    }
-  }
-
   if (!response.ok) {
-    const message =
-      typeof data === "object" && data?.detail
-        ? data.detail
-        : `Request failed: ${response.status}`;
+    let message = `Request failed with status ${response.status}`;
+
+    try {
+      const data = await response.json();
+      message = data?.detail || message;
+    } catch {
+      // Ignore parse errors.
+    }
 
     throw new Error(message);
   }
 
-  return data as T;
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
 }
 
 export async function getHeaders(options?: {
@@ -187,20 +230,17 @@ export async function getHeaders(options?: {
   json?: boolean;
   getToken?: () => Promise<string | null>;
 }): Promise<Record<string, string>> {
-  const orgId = options?.orgId ?? getStoredOrgId();
+  const resolvedOrgId = await resolveOrgId(
+    "",
+    options?.orgId,
+    options?.getToken
+  );
+
   const authHeaders = await getAuthHeader(options?.getToken);
 
-  const headers: Record<string, string> = {
+  return {
     ...authHeaders,
+    ...(options?.json === false ? {} : { "Content-Type": "application/json" }),
+    ...(resolvedOrgId ? { "x-organization-id": resolvedOrgId } : {}),
   };
-
-  if (options?.json !== false) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  if (orgId) {
-    headers["x-organization-id"] = orgId;
-  }
-
-  return headers;
 }

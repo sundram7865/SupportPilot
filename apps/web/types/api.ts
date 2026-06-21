@@ -8,13 +8,16 @@ export type Organization = {
 export type AuthMeResponse = {
   user: {
     id: string;
+    clerk_user_id?: string | null;
     email: string;
     name?: string | null;
+    avatar_url?: string | null;
   };
   organizations?: Organization[];
   memberships?: Array<{
     organization_id?: string;
     role?: string;
+    status?: string;
     organization?: Organization;
   }>;
   organization?: Organization;
