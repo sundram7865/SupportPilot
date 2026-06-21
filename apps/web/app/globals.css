@@ -358,3 +358,47 @@ button {
   place-items: center;
   padding: 24px;
 }
+
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  font-size: 14px;
+}
+
+.button.secondary {
+  background: #f8fafc;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+}

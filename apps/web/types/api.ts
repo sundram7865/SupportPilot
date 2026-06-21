@@ -120,3 +120,49 @@ export type ReplyDraft = {
   sent_message_id: string | null;
   created_at: string;
 };
+
+export type OrganizationDetails = {
+  id: string;
+  name: string;
+  slug: string;
+  support_email?: string | null;
+  plan?: string;
+};
+
+export type OrganizationMemberUser = {
+  id: string;
+  clerk_user_id?: string | null;
+  email: string;
+  name?: string | null;
+  avatar_url?: string | null;
+};
+
+export type OrganizationMember = {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: string;
+  status: string;
+  user?: OrganizationMemberUser | null;
+};
+
+export type OrganizationInvitation = {
+  id: string;
+  organization_id: string;
+  email: string;
+  name?: string | null;
+  role: string;
+  status: string;
+  invited_by_user_id?: string | null;
+  accepted_by_user_id?: string | null;
+  accepted_at?: string | null;
+  created_at?: string | null;
+};
+
+export type InviteMemberResult = {
+  type: "membership" | "invitation";
+  created: boolean;
+  message: string;
+  membership?: OrganizationMember | null;
+  invitation?: OrganizationInvitation | null;
+};
