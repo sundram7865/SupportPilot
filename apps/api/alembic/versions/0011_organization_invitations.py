@@ -29,7 +29,12 @@ def upgrade() -> None:
         sa.Column("email", sa.String(length=255), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=True),
         sa.Column("role", sa.String(length=50), nullable=False),
-        sa.Column("status", sa.String(length=30), nullable=False, server_default="PENDING"),
+        sa.Column(
+            "status",
+            sa.String(length=30),
+            nullable=False,
+            server_default="PENDING",
+        ),
         sa.Column(
             "invited_by_user_id",
             postgresql.UUID(as_uuid=True),
@@ -77,7 +82,16 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_organization_invitations_org_email_status", table_name="organization_invitations")
-    op.drop_index("ix_organization_invitations_email", table_name="organization_invitations")
-    op.drop_index("ix_organization_invitations_organization_id", table_name="organization_invitations")
+    op.drop_index(
+        "ix_organization_invitations_org_email_status",
+        table_name="organization_invitations",
+    )
+    op.drop_index(
+        "ix_organization_invitations_email",
+        table_name="organization_invitations",
+    )
+    op.drop_index(
+        "ix_organization_invitations_organization_id",
+        table_name="organization_invitations",
+    )
     op.drop_table("organization_invitations")
