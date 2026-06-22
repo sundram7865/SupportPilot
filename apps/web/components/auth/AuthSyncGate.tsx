@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth, useUser } from "@clerk/nextjs";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { clearStoredOrgId, syncAuthUser } from "@/lib/api";
@@ -8,11 +9,18 @@ import { clearStoredOrgId, syncAuthUser } from "@/lib/api";
 type SyncState = "idle" | "syncing" | "done" | "error";
 
 export function AuthSyncGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
   const { isLoaded: authLoaded, isSignedIn, getToken } = useAuth();
   const { isLoaded: userLoaded, user } = useUser();
 
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  const isPublicRoute =
+    pathname.startsWith("/support") ||
+    pathname.startsWith("/embed") ||
+    pathname.startsWith("/widget");
 
   const primaryEmail = useMemo(() => {
     return (
@@ -23,6 +31,10 @@ export function AuthSyncGate({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   useEffect(() => {
+    if (isPublicRoute) {
+      return;
+    }
+
     let cancelled = false;
 
     async function run() {
@@ -32,24 +44,37 @@ export function AuthSyncGate({ children }: { children: React.ReactNode }) {
 
       if (!isSignedIn) {
         clearStoredOrgId();
-        setSyncState("done");
+
+        if (!cancelled) {
+          setSyncState("done");
+        }
+
         return;
       }
 
       if (!user) {
-        setError("Signed in, but Clerk user is not loaded.");
-        setSyncState("error");
+        if (!cancelled) {
+          setError("Signed in, but Clerk user is not loaded.");
+          setSyncState("error");
+        }
+
         return;
       }
 
       if (!primaryEmail) {
-        setError("Your Clerk account does not have a primary email.");
-        setSyncState("error");
+        if (!cancelled) {
+          setError("Your Clerk account does not have a primary email.");
+          setSyncState("error");
+        }
+
         return;
       }
 
       try {
-        setSyncState("syncing");
+        if (!cancelled) {
+          setError(null);
+          setSyncState("syncing");
+        }
 
         await syncAuthUser(getToken, {
           clerk_user_id: user.id,
@@ -74,7 +99,24 @@ export function AuthSyncGate({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [authLoaded, userLoaded, isSignedIn, user, primaryEmail, getToken]);
+  }, [
+    isPublicRoute,
+    authLoaded,
+    userLoaded,
+    isSignedIn,
+    user,
+    primaryEmail,
+    getToken,
+  ]);
+
+  // Public customer routes must never go to Clerk/auth sync.
+  // These are customer-facing:
+  // /support/[organizationSlug]
+  // /embed/support?org=...
+  // /widget/supportpilot-widget.js
+  if (isPublicRoute) {
+    return <>{children}</>;
+  }
 
   if (
     !authLoaded ||
