@@ -482,3 +482,51 @@ button {
   color: #dc2626;
   font-size: 14px;
 }
+
+.widget-page {
+  min-height: 100vh;
+  background: #ffffff;
+  padding: 0;
+}
+
+.widget-card {
+  width: 100%;
+  min-height: 100vh;
+  padding: 20px;
+  background: #ffffff;
+}
+
+.widget-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.widget-header h1 {
+  margin: 0;
+  font-size: 22px;
+  color: #0f172a;
+}
+
+.widget-close {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f172a;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.widget-textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.widget-submit {
+  width: 100%;
+}
