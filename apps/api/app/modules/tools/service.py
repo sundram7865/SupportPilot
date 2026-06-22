@@ -125,6 +125,80 @@ def get_existing_execution_by_idempotency_key(
     )
 
 
+def extract_refund_amount_from_order_context(order_context: dict) -> float | None:
+    payment = order_context.get("payment") or {}
+    order = order_context.get("order") or {}
+
+    amount = payment.get("amount")
+
+    if amount is None:
+        amount = order.get("total_amount")
+
+    if amount is None:
+        return None
+
+    try:
+        return float(amount)
+    except (TypeError, ValueError):
+        return None
+
+
+async def normalize_refund_args(
+    db: Session,
+    organization: Organization,
+    args: dict,
+) -> dict:
+    normalized_args = dict(args or {})
+
+    order_id = normalized_args.get("order_id")
+
+    if not order_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="order_id is required for refund request.",
+        )
+
+    if normalized_args.get("amount") is None:
+        order_context = await execute_urbankart_get_order_context(
+            db=db,
+            organization=organization,
+            args={"order_id": order_id},
+        )
+
+        amount = extract_refund_amount_from_order_context(order_context)
+
+        if amount is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="amount is required and could not be inferred from order/payment context.",
+            )
+
+        normalized_args["amount"] = amount
+
+    if not normalized_args.get("reason"):
+        normalized_args["reason"] = (
+            "Refund requested after support review and human approval."
+        )
+
+    return normalized_args
+
+
+async def normalize_tool_args_before_execution(
+    db: Session,
+    organization: Organization,
+    tool_name: str,
+    args: dict,
+) -> dict:
+    if tool_name == ToolName.URBANKART_REQUEST_REFUND.value:
+        return await normalize_refund_args(
+            db=db,
+            organization=organization,
+            args=args,
+        )
+
+    return args or {}
+
+
 async def execute_tool(
     db: Session,
     organization: Organization,
@@ -138,6 +212,15 @@ async def execute_tool(
 ) -> ToolExecution:
     validate_ticket_scope(db, organization.id, ticket_id)
     validate_agent_run_scope(db, organization.id, agent_run_id)
+
+    tool_definition = get_tool_definition(tool_name)
+
+    args = await normalize_tool_args_before_execution(
+        db=db,
+        organization=organization,
+        tool_name=tool_name,
+        args=args,
+    )
 
     existing_execution = get_existing_execution_by_idempotency_key(
         db=db,
@@ -158,8 +241,6 @@ async def execute_tool(
             )
 
         return existing_execution
-
-    tool_definition = get_tool_definition(tool_name)
 
     started_at = time.perf_counter()
 
@@ -342,6 +423,36 @@ async def execute_approved_tool_execution(
 
     started_at = time.perf_counter()
 
+    try:
+        normalized_args = await normalize_tool_args_before_execution(
+            db=db,
+            organization=organization,
+            tool_name=execution.tool_name,
+            args=execution.input_args or {},
+        )
+    except Exception as exc:
+        execution.status = ToolExecutionStatus.FAILED.value
+        execution.error_message = str(exc)
+        execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
+        execution.completed_at = datetime.now(timezone.utc)
+
+        timeline_event = add_tool_timeline_event(
+            db=db,
+            organization_id=organization.id,
+            ticket_id=execution.ticket_id,
+            actor_user_id=approved_by_user_id,
+            event_type=TicketTimelineEventType.APPROVED_TOOL_EXECUTION_FAILED,
+            title="Approved tool execution failed",
+            description=str(exc),
+        )
+
+        db.commit()
+        db.refresh(execution)
+        publish_if_exists(db, organization.id, execution.ticket_id, timeline_event)
+
+        return execution
+
+    execution.input_args = normalized_args
     execution.status = ToolExecutionStatus.STARTED.value
     execution.error_message = None
 
