@@ -13,6 +13,8 @@ from app.modules.realtime.router import router as realtime_router
 from app.modules.replies.router import router as replies_router
 from app.modules.tickets.router import router as tickets_router
 from app.modules.tools.router import router as tools_router
+from app.modules.public.router import router as public_router
+
 
 configure_logging()
 
@@ -44,7 +46,7 @@ app.include_router(tools_router)
 app.include_router(approvals_router)
 app.include_router(replies_router)
 app.include_router(realtime_router)
-
+app.include_router(public_router)
 
 @app.get("/")
 def root():
