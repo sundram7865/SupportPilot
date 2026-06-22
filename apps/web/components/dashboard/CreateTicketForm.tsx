@@ -1,11 +1,12 @@
+"use client";
+
 import { useAuth } from "@clerk/nextjs";
 import { useState } from "react";
 
 import { Section } from "@/components/ui/Section";
-import { apiFetch } from "@/lib/api";
-import type { Ticket } from "@/types/api";
+import { useCreateTicket, type CreateTicketPayload } from "@/hooks/useTicketQueries";
 
-const defaultTicket = {
+const defaultTicket: CreateTicketPayload = {
   subject: "Where is my order?",
   description: "I placed order ORD-1001 and want to know the delivery status.",
   customer_name: "Rahul Sharma",
@@ -15,35 +16,31 @@ const defaultTicket = {
   priority: "MEDIUM",
   category: "ORDER_STATUS",
   source: "SUPPORT_FORM",
+  metadata_json: {
+    created_from: "admin_dashboard",
+  },
 };
 
-export function CreateTicketForm({
-  orgId,
-  onCreated,
-}: {
-  orgId: string | null;
-  onCreated: (ticket: Ticket) => void;
-}) {
+export function CreateTicketForm({ orgId }: { orgId: string | null }) {
   const { getToken, isSignedIn } = useAuth();
-  const [form, setForm] = useState(defaultTicket);
-  const [creating, setCreating] = useState(false);
+
+  const [form, setForm] = useState<CreateTicketPayload>(defaultTicket);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const createTicketMutation = useCreateTicket({
+    orgId,
+    getToken: isSignedIn ? getToken : undefined,
+  });
 
   async function createTicket() {
-    if (!orgId) return;
-
-    setCreating(true);
+    setMessage(null);
 
     try {
-      const ticket = await apiFetch<Ticket>("/tickets", {
-        method: "POST",
-        orgId,
-        getToken: isSignedIn ? getToken : undefined,
-        body: JSON.stringify(form),
-      });
+      const ticket = await createTicketMutation.mutateAsync(form);
 
-      onCreated(ticket);
-    } finally {
-      setCreating(false);
+      setMessage(`Created ${ticket.ticket_number || "ticket"}.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to create ticket.");
     }
   }
 
@@ -54,7 +51,9 @@ export function CreateTicketForm({
         <input
           className="input"
           value={form.subject}
-          onChange={(e) => setForm((prev) => ({ ...prev, subject: e.target.value }))}
+          onChange={(event) =>
+            setForm((prev) => ({ ...prev, subject: event.target.value }))
+          }
         />
       </div>
 
@@ -63,8 +62,8 @@ export function CreateTicketForm({
         <textarea
           className="textarea"
           value={form.description}
-          onChange={(e) =>
-            setForm((prev) => ({ ...prev, description: e.target.value }))
+          onChange={(event) =>
+            setForm((prev) => ({ ...prev, description: event.target.value }))
           }
         />
       </div>
@@ -74,9 +73,12 @@ export function CreateTicketForm({
           <label className="label">Customer Name</label>
           <input
             className="input"
-            value={form.customer_name}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, customer_name: e.target.value }))
+            value={form.customer_name || ""}
+            onChange={(event) =>
+              setForm((prev) => ({
+                ...prev,
+                customer_name: event.target.value,
+              }))
             }
           />
         </div>
@@ -85,9 +87,13 @@ export function CreateTicketForm({
           <label className="label">Customer Email</label>
           <input
             className="input"
+            type="email"
             value={form.customer_email}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, customer_email: e.target.value }))
+            onChange={(event) =>
+              setForm((prev) => ({
+                ...prev,
+                customer_email: event.target.value,
+              }))
             }
           />
         </div>
@@ -98,9 +104,12 @@ export function CreateTicketForm({
           <label className="label">Order ID</label>
           <input
             className="input"
-            value={form.external_order_id}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, external_order_id: e.target.value }))
+            value={form.external_order_id || ""}
+            onChange={(event) =>
+              setForm((prev) => ({
+                ...prev,
+                external_order_id: event.target.value,
+              }))
             }
           />
         </div>
@@ -110,12 +119,14 @@ export function CreateTicketForm({
           <select
             className="select"
             value={form.priority}
-            onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, priority: event.target.value }))
+            }
           >
-            <option>LOW</option>
-            <option>MEDIUM</option>
-            <option>HIGH</option>
-            <option>URGENT</option>
+            <option value="LOW">LOW</option>
+            <option value="MEDIUM">MEDIUM</option>
+            <option value="HIGH">HIGH</option>
+            <option value="URGENT">URGENT</option>
           </select>
         </div>
 
@@ -124,24 +135,33 @@ export function CreateTicketForm({
           <select
             className="select"
             value={form.category}
-            onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, category: event.target.value }))
+            }
           >
-            <option>ORDER_STATUS</option>
-            <option>PAYMENT_ISSUE</option>
-            <option>REFUND_REQUEST</option>
-            <option>RETURN_REPLACEMENT</option>
-            <option>PRODUCT_QUESTION</option>
-            <option>DELIVERY_ISSUE</option>
-            <option>ACCOUNT_ISSUE</option>
-            <option>COMPLAINT</option>
-            <option>LEGAL_RISK</option>
-            <option>OTHER</option>
+            <option value="ORDER_STATUS">ORDER_STATUS</option>
+            <option value="PAYMENT_ISSUE">PAYMENT_ISSUE</option>
+            <option value="REFUND_REQUEST">REFUND_REQUEST</option>
+            <option value="RETURN_REQUEST">RETURN_REQUEST</option>
+            <option value="DAMAGED_PRODUCT">DAMAGED_PRODUCT</option>
+            <option value="CANCEL_ORDER">CANCEL_ORDER</option>
+            <option value="INVOICE_REQUEST">INVOICE_REQUEST</option>
+            <option value="WARRANTY_REQUEST">WARRANTY_REQUEST</option>
+            <option value="GENERAL_FAQ">GENERAL_FAQ</option>
+            <option value="LEGAL_RISK">LEGAL_RISK</option>
+            <option value="OTHER">OTHER</option>
           </select>
         </div>
       </div>
 
-      <button className="btn" disabled={creating || !orgId} onClick={createTicket}>
-        {creating ? "Creating..." : "Create Ticket"}
+      {message ? <p className="muted">{message}</p> : null}
+
+      <button
+        className="btn"
+        disabled={createTicketMutation.isPending || !orgId}
+        onClick={createTicket}
+      >
+        {createTicketMutation.isPending ? "Creating..." : "Create Ticket"}
       </button>
     </Section>
   );

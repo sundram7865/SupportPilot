@@ -287,3 +287,10 @@ export type PublicTicketCreateResponse = {
   created_at?: string | null;
   message: string;
 };
+
+export type TicketListResponse = {
+  items: Ticket[];
+  total: number;
+  limit: number;
+  offset: number;
+};
