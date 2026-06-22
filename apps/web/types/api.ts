@@ -255,3 +255,35 @@ export type CreateKnowledgeDocumentPayload = {
   content: string;
   source_url?: string | null;
 };
+
+export type PublicOrganization = {
+  id: string;
+  name: string;
+  slug: string;
+  support_email?: string | null;
+};
+
+export type PublicTicketCreatePayload = {
+  subject: string;
+  description: string;
+  customer_name?: string | null;
+  customer_email: string;
+  customer_phone?: string | null;
+  external_order_id?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+};
+
+export type PublicTicketCreateResponse = {
+  id: string;
+  organization_id: string;
+  ticket_number: string;
+  subject: string;
+  status: string;
+  priority: string;
+  category: string;
+  source: string;
+  customer_email: string;
+  external_order_id?: string | null;
+  created_at?: string | null;
+  message: string;
+};
