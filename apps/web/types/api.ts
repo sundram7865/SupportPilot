@@ -66,18 +66,27 @@ export type TimelineEvent = {
 
 export type AgentRun = {
   id: string;
+  organization_id?: string;
   ticket_id: string;
+  started_by_user_id?: string | null;
   status: string;
-  decision?: string | null;
-  risk_level?: string | null;
+  provider?: string;
+  model_name?: string | null;
   detected_category?: string | null;
   detected_priority?: string | null;
+  risk_level?: string | null;
+  decision?: string | null;
   draft_response?: string | null;
-  planned_tools?: any[];
-  final_state?: any;
+  reasoning_summary?: string | null;
+  planned_tools?: Array<Record<string, unknown>> | null;
+  retrieved_context?: Array<Record<string, unknown>> | null;
+  final_state?: Record<string, unknown> | null;
+  error_message?: string | null;
+  duration_ms?: number | null;
   created_at?: string;
+  completed_at?: string | null;
+  steps?: AgentRunStep[];
 };
-
 export type ToolExecution = {
   id: string;
   ticket_id: string | null;
@@ -294,3 +303,17 @@ export type TicketListResponse = {
   limit: number;
   offset: number;
 };
+
+
+export type AgentRunStep = {
+  id: string;
+  step_name: string;
+  status: string;
+  input_json?: Record<string, unknown> | null;
+  output_json?: Record<string, unknown> | null;
+  error_message?: string | null;
+  duration_ms?: number | null;
+  created_at: string;
+  completed_at?: string | null;
+};
+
