@@ -1,6 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-
+from app.modules.agent.policy import apply_agent_policy
 from app.common.enums import AgentDecision, AgentRiskLevel
 from app.modules.agent.llm import LLMClient
 from app.modules.agent.state import AgentState
@@ -91,6 +91,24 @@ def classify_ticket_node(state: AgentState) -> AgentState:
     llm = LLMClient()
     ticket = state["ticket"]
 
+    ticket_category = str(ticket.get("category") or "").upper()
+    ticket_priority = str(ticket.get("priority") or "").upper()
+
+    # Hard safety rule:
+    # If ticket is already marked as LEGAL_RISK by system/user,
+    # Gemini/mock must not downgrade it to OTHER.
+    if ticket_category == "LEGAL_RISK":
+        state["detected_category"] = "LEGAL_RISK"
+        state["detected_priority"] = (
+            "URGENT" if ticket_priority == "URGENT" else "HIGH"
+        )
+        state["reasoning_summary"] = (
+            "Ticket was already marked as LEGAL_RISK, so classifier preserved "
+            "legal escalation category."
+        )
+        state["classification_confidence"] = 0.99
+        return state
+
     prompt = f"""
 You are SupportPilot, an AI support ticket classifier for an e-commerce/D2C support system.
 
@@ -116,6 +134,7 @@ Allowed priorities:
 - URGENT
 
 Classification rules:
+- If current category is LEGAL_RISK, return LEGAL_RISK and URGENT.
 - If customer asks where order is, shipment, tracking, delivery status → ORDER_STATUS.
 - If customer says payment deducted, failed payment, charged, money debited → PAYMENT_ISSUE.
 - If customer asks refund explicitly → REFUND_REQUEST unless it is mainly payment failure.
@@ -142,8 +161,8 @@ Order ID: {ticket.get("external_order_id")}
 """.strip()
 
     fallback = {
-        "category": "OTHER",
-        "priority": "MEDIUM",
+        "category": ticket_category if ticket_category else "OTHER",
+        "priority": ticket_priority if ticket_priority else "MEDIUM",
         "confidence": 0.5,
         "summary": "Fallback classification used because LLM response was invalid.",
     }
@@ -187,6 +206,18 @@ def detect_risk_node(state: AgentState) -> AgentState:
     ticket = state["ticket"]
     context = state.get("knowledge_context", [])
 
+    ticket_category = str(ticket.get("category") or "").upper()
+    detected_category = str(state.get("detected_category") or "").upper()
+
+    # Hard safety rule:
+    # LEGAL_RISK must always become CRITICAL risk.
+    if ticket_category == "LEGAL_RISK" or detected_category == "LEGAL_RISK":
+        state["risk_level"] = "CRITICAL"
+        state["risk_reasons"] = [
+            "Ticket is marked as LEGAL_RISK and must be escalated."
+        ]
+        return state
+
     prompt = f"""
 You are SupportPilot risk detection for an e-commerce customer support platform.
 
@@ -200,6 +231,7 @@ Allowed risk levels:
 
 Risk rules:
 - Legal threats, consumer court, lawyer, police, regulator, public legal complaint → CRITICAL.
+- If current/detected category is LEGAL_RISK → CRITICAL.
 - Refund, payment deducted, money debited, replacement, cancellation → HIGH.
 - Angry customer without legal/money impact → MEDIUM.
 - Basic order status or FAQ → LOW.
@@ -215,6 +247,7 @@ Return JSON in this exact shape:
 Ticket:
 Subject: {ticket["subject"]}
 Description: {ticket["description"]}
+Current category: {ticket.get("category")}
 Detected category: {state.get("detected_category")}
 Detected priority: {state.get("detected_priority")}
 Knowledge context:
@@ -278,6 +311,9 @@ def _has_legal_keywords(text: str) -> bool:
 def _infer_category_from_text(text: str, current_category: str) -> str:
     lower_text = text.lower()
     normalized_current_category = str(current_category or "OTHER").upper()
+
+    if normalized_current_category == "LEGAL_RISK":
+        return "LEGAL_RISK"
 
     if _has_legal_keywords(text):
         return "LEGAL_RISK"
@@ -360,21 +396,31 @@ def plan_tools_node(state: AgentState) -> AgentState:
 
     full_text = f"{subject}\n{description}\n{message_text}"
 
-    raw_category = str(
-        state.get("detected_category")
-        or ticket.get("category")
-        or "OTHER"
-    ).upper()
+    ticket_category = str(ticket.get("category") or "OTHER").upper()
+    detected_category = str(state.get("detected_category") or "OTHER").upper()
+
+    # Important:
+    # Existing ticket LEGAL_RISK must always win.
+    if ticket_category == "LEGAL_RISK":
+        raw_category = "LEGAL_RISK"
+    elif detected_category not in {"OTHER", "NONE", "NULL", ""}:
+        raw_category = detected_category
+    else:
+        raw_category = ticket_category
 
     category = _infer_category_from_text(full_text, raw_category)
 
     risk_level = str(state.get("risk_level") or "LOW").upper()
 
-    has_legal_risk = category == "LEGAL_RISK" or _has_legal_keywords(full_text)
+    has_legal_risk = (
+        ticket_category == "LEGAL_RISK"
+        or detected_category == "LEGAL_RISK"
+        or category == "LEGAL_RISK"
+        or _has_legal_keywords(full_text)
+    )
 
-    # Important fix:
-    # CRITICAL should block tools only when it is actually legal/escalation risk.
-    # Refund/payment can be high risk, but still should create an approval tool.
+    # CRITICAL should block tools only when actual legal/escalation risk exists.
+    # Refund/payment can be high risk, but should still create approval tool.
     if risk_level == "CRITICAL" and not has_legal_risk:
         print(
             "DEBUG_PLAN_TOOLS_DOWNGRADE_CRITICAL_TO_HIGH_FOR_NON_LEGAL_TICKET",
@@ -392,6 +438,8 @@ def plan_tools_node(state: AgentState) -> AgentState:
 
     planned_tools: list[dict] = []
 
+    print("DEBUG_PLAN_TOOLS_TICKET_CATEGORY:", ticket_category, flush=True)
+    print("DEBUG_PLAN_TOOLS_DETECTED_CATEGORY:", detected_category, flush=True)
     print("DEBUG_PLAN_TOOLS_RAW_CATEGORY:", raw_category, flush=True)
     print("DEBUG_PLAN_TOOLS_INFERRED_CATEGORY:", category, flush=True)
     print("DEBUG_PLAN_TOOLS_RISK:", risk_level, flush=True)
@@ -415,6 +463,7 @@ def plan_tools_node(state: AgentState) -> AgentState:
         "PAYMENT_ISSUE",
         "REFUND_REQUEST",
         "RETURN_REQUEST",
+        "RETURN_REPLACEMENT",
         "DAMAGED_PRODUCT",
         "CANCEL_ORDER",
         "INVOICE_REQUEST",
@@ -532,6 +581,29 @@ Planned tools: {state.get("planned_tools")}
 def decision_node(state: AgentState) -> AgentState:
     llm = LLMClient()
 
+    policy_result = apply_agent_policy(state)
+
+    policy_decision = policy_result["decision"]
+    policy_reasons = policy_result.get("policy_reasons", [])
+    policy_blocked_auto_reply = bool(
+        policy_result.get("policy_blocked_auto_reply", False)
+    )
+
+    state["policy_reasons"] = policy_reasons
+    state["policy_blocked_auto_reply"] = policy_blocked_auto_reply
+
+    # If deterministic policy already says escalate / approval / ask info,
+    # do not allow Gemini to downgrade it to AUTO_REPLY.
+    if policy_decision in {
+        AgentDecision.ESCALATE_TO_MANAGER.value,
+        AgentDecision.NEEDS_HUMAN_APPROVAL.value,
+        AgentDecision.ASK_CUSTOMER_FOR_MORE_INFO.value,
+    }:
+        state["decision"] = policy_decision
+        state["reasoning_summary"] = " ".join(policy_reasons)
+
+        return state
+
     prompt = f"""
 You are SupportPilot decision engine.
 
@@ -544,18 +616,15 @@ Allowed decisions:
 - ASK_CUSTOMER_FOR_MORE_INFO
 - NO_ACTION
 
-Decision rules:
-- If risk_level is CRITICAL → ESCALATE_TO_MANAGER.
-- If detected_category is LEGAL_RISK → ESCALATE_TO_MANAGER.
-- If planned tools include any requires_approval=true → NEEDS_HUMAN_APPROVAL.
-- If ticket involves refund, payment, cancellation, replacement, money movement → NEEDS_HUMAN_APPROVAL.
-- If required information is missing, like order_id for order/payment/refund issue → ASK_CUSTOMER_FOR_MORE_INFO.
-- If low risk and enough information exists → AUTO_REPLY_DRAFT.
-- If unsure → NEEDS_HUMAN_APPROVAL.
+Important:
+Backend policy already found this ticket safe for low-risk AI draft handling.
+You may choose AUTO_REPLY_DRAFT or NEEDS_HUMAN_APPROVAL.
+Do not choose ESCALATE_TO_MANAGER unless new legal risk is obvious.
+Do not choose AUTO_REPLY_DRAFT for refund, payment, cancellation, replacement, or legal risk.
 
 Return JSON in this exact shape:
 {{
-  "decision": "NEEDS_HUMAN_APPROVAL",
+  "decision": "AUTO_REPLY_DRAFT",
   "reasoning_summary": "short reason"
 }}
 
@@ -563,36 +632,43 @@ Category: {state.get("detected_category")}
 Priority: {state.get("detected_priority")}
 Risk level: {state.get("risk_level")}
 Risk reasons: {state.get("risk_reasons")}
+Classification confidence: {state.get("classification_confidence")}
 Planned tools: {state.get("planned_tools")}
+Policy reasons: {policy_reasons}
 Draft response: {state.get("draft_response")}
 Ticket: {state.get("ticket")}
 """.strip()
 
     fallback = {
-        "decision": "NEEDS_HUMAN_APPROVAL",
-        "reasoning_summary": "Fallback decision used because LLM response was invalid.",
+        "decision": policy_decision,
+        "reasoning_summary": "Fallback decision used after policy check.",
     }
 
     result = llm.generate_json(prompt, fallback=fallback)
 
     allowed_decisions = {
-        "AUTO_REPLY_DRAFT",
-        "NEEDS_HUMAN_APPROVAL",
-        "ESCALATE_TO_MANAGER",
-        "ASK_CUSTOMER_FOR_MORE_INFO",
-        "NO_ACTION",
+        AgentDecision.AUTO_REPLY_DRAFT.value,
+        AgentDecision.NEEDS_HUMAN_APPROVAL.value,
+        AgentDecision.ESCALATE_TO_MANAGER.value,
+        AgentDecision.ASK_CUSTOMER_FOR_MORE_INFO.value,
+        AgentDecision.NO_ACTION.value,
     }
 
-    decision = str(result.get("decision", "NEEDS_HUMAN_APPROVAL")).upper()
+    decision = str(result.get("decision", policy_decision)).upper()
 
     if decision not in allowed_decisions:
-        decision = "NEEDS_HUMAN_APPROVAL"
+        decision = policy_decision
+
+    # Final safety guard: if policy allowed auto-reply but Gemini becomes unsure,
+    # human approval is safer than NO_ACTION.
+    if decision == AgentDecision.NO_ACTION.value:
+        decision = AgentDecision.NEEDS_HUMAN_APPROVAL.value
 
     state["decision"] = decision
     state["reasoning_summary"] = str(
         result.get(
             "reasoning_summary",
-            state.get("reasoning_summary", ""),
+            " ".join(policy_reasons),
         )
     )
 

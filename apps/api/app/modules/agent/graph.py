@@ -123,8 +123,10 @@ def build_ticket_agent_graph(db: Session):
             ticket_id=parsed_ids["ticket_id"],
             step_name="decision",
             input_json={
-                "risk_level": state.get("risk_level"),
-                "planned_tools": state.get("planned_tools"),
+            "risk_level": state.get("risk_level"),
+            "classification_confidence": state.get("classification_confidence"),
+            "planned_tools": state.get("planned_tools"),
+             "category": state.get("detected_category"),
             },
             fn=lambda: decision_node(state),
         )

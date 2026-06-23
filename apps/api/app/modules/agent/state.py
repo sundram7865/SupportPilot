@@ -25,3 +25,5 @@ class AgentState(TypedDict, total=False):
 
     error_message: str | None
     classification_confidence: float
+    policy_reasons: list[str]
+    policy_blocked_auto_reply: bool
