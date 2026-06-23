@@ -119,15 +119,34 @@ export type ApprovalRequest = {
 
 export type ReplyDraft = {
   id: string;
+  organization_id?: string;
   ticket_id: string;
   agent_run_id: string | null;
   approval_request_id: string | null;
+
+  created_by_user_id?: string | null;
+  updated_by_user_id?: string | null;
+  approved_by_user_id?: string | null;
+  rejected_by_user_id?: string | null;
+  sent_by_user_id?: string | null;
+
   source: string;
   status: string;
   subject: string | null;
   body: string;
+
+  rejection_reason?: string | null;
+  approval_reason?: string | null;
+  send_notes?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+
   sent_message_id: string | null;
+
   created_at: string;
+  updated_at?: string;
+  approved_at?: string | null;
+  rejected_at?: string | null;
+  sent_at?: string | null;
 };
 
 export type OrganizationDetails = {
