@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { AgentRunHistoryPanel } from "@/components/ticket/AgentRunHistoryPanel";
+import { AgentRunStepDetailPanel } from "@/components/ticket/AgentRunStepDetailPanel";
 import { AgentRunSummaryPanel } from "@/components/ticket/AgentRunSummaryPanel";
 import { ApprovalPanel } from "@/components/ticket/ApprovalPanel";
 import { CustomerMessagePanel } from "@/components/ticket/CustomerMessagePanel";
@@ -37,6 +39,11 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
   const [tools, setTools] = useState<ToolExecution[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [drafts, setDrafts] = useState<ReplyDraft[]>([]);
+
+  const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+  const [selectedAgentRunId, setSelectedAgentRunId] = useState<string | null>(
+    null
+  );
   const [latestAgentRun, setLatestAgentRun] = useState<AgentRun | null>(null);
 
   const [sseStatus, setSseStatus] = useState("connecting");
@@ -57,74 +64,92 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
     return latestAgentRun?.retrieved_context || [];
   }, [latestAgentRun]);
 
-  const loadAll = useCallback(async () => {
-    if (!tokenGetter) {
-      return;
-    }
+  const agentSteps = useMemo(() => {
+    return latestAgentRun?.steps || [];
+  }, [latestAgentRun]);
 
-    const [
-      ticketData,
-      timelineData,
-      toolData,
-      approvalData,
-      draftData,
-      agentRunsData,
-    ] = await Promise.all([
-      apiFetch<Ticket>(`/tickets/${ticketId}`, {
-        getToken: tokenGetter,
-      }),
+  const loadAll = useCallback(
+    async (preferredRunId?: string | null) => {
+      if (!tokenGetter) {
+        return;
+      }
 
-      apiFetch<TimelineEvent[] | { items?: TimelineEvent[] }>(
-        `/tickets/${ticketId}/timeline`,
-        {
+      const [
+        ticketData,
+        timelineData,
+        toolData,
+        approvalData,
+        draftData,
+        agentRunsData,
+      ] = await Promise.all([
+        apiFetch<Ticket>(`/tickets/${ticketId}`, {
           getToken: tokenGetter,
-        }
-      ),
+        }),
 
-      apiFetch<{ items?: ToolExecution[] }>(
-        `/tools/tickets/${ticketId}/executions`,
-        {
+        apiFetch<TimelineEvent[] | { items?: TimelineEvent[] }>(
+          `/tickets/${ticketId}/timeline`,
+          {
+            getToken: tokenGetter,
+          }
+        ),
+
+        apiFetch<{ items?: ToolExecution[] }>(
+          `/tools/tickets/${ticketId}/executions`,
+          {
+            getToken: tokenGetter,
+          }
+        ),
+
+        apiFetch<{ items?: ApprovalRequest[] }>(
+          `/approvals/tickets/${ticketId}`,
+          {
+            getToken: tokenGetter,
+          }
+        ),
+
+        apiFetch<{ items?: ReplyDraft[] }>(
+          `/replies/tickets/${ticketId}/drafts`,
+          {
+            getToken: tokenGetter,
+          }
+        ),
+
+        apiFetch<{ items?: AgentRun[] }>(`/agent/tickets/${ticketId}/runs`, {
           getToken: tokenGetter,
-        }
-      ),
+        }),
+      ]);
 
-      apiFetch<{ items?: ApprovalRequest[] }>(
-        `/approvals/tickets/${ticketId}`,
-        {
+      const runs = unwrapItems(agentRunsData);
+
+      setTicket(ticketData);
+      setTimeline(unwrapItems(timelineData));
+      setTools(unwrapItems(toolData));
+      setApprovals(unwrapItems(approvalData));
+      setDrafts(unwrapItems(draftData));
+      setAgentRuns(runs);
+
+      const fallbackRunId = runs[0]?.id || null;
+      const runIdToLoad =
+        preferredRunId ||
+        (selectedAgentRunId &&
+        runs.some((run) => run.id === selectedAgentRunId)
+          ? selectedAgentRunId
+          : fallbackRunId);
+
+      setSelectedAgentRunId(runIdToLoad);
+
+      if (runIdToLoad) {
+        const fullRun = await apiFetch<AgentRun>(`/agent/runs/${runIdToLoad}`, {
           getToken: tokenGetter,
-        }
-      ),
+        });
 
-      apiFetch<{ items?: ReplyDraft[] }>(
-        `/replies/tickets/${ticketId}/drafts`,
-        {
-          getToken: tokenGetter,
-        }
-      ),
-
-      apiFetch<{ items?: AgentRun[] }>(`/agent/tickets/${ticketId}/runs`, {
-        getToken: tokenGetter,
-      }),
-    ]);
-
-    setTicket(ticketData);
-    setTimeline(unwrapItems(timelineData));
-    setTools(unwrapItems(toolData));
-    setApprovals(unwrapItems(approvalData));
-    setDrafts(unwrapItems(draftData));
-
-    const latestRunItem = unwrapItems(agentRunsData)[0];
-
-    if (latestRunItem?.id) {
-      const fullRun = await apiFetch<AgentRun>(`/agent/runs/${latestRunItem.id}`, {
-        getToken: tokenGetter,
-      });
-
-      setLatestAgentRun(fullRun);
-    } else {
-      setLatestAgentRun(null);
-    }
-  }, [ticketId, tokenGetter]);
+        setLatestAgentRun(fullRun);
+      } else {
+        setLatestAgentRun(null);
+      }
+    },
+    [ticketId, tokenGetter, selectedAgentRunId]
+  );
 
   async function runAction(label: string, fn: () => Promise<void>) {
     if (!tokenGetter) {
@@ -143,10 +168,26 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
     }
   }
 
+  async function selectAgentRun(runId: string) {
+    setSelectedAgentRunId(runId);
+
+    await runAction("Loading agent run...", async () => {
+      if (!tokenGetter) return;
+
+      const fullRun = await apiFetch<AgentRun>(`/agent/runs/${runId}`, {
+        getToken: tokenGetter,
+      });
+
+      setLatestAgentRun(fullRun);
+    });
+  }
+
   useEffect(() => {
     if (!tokenGetter) return;
 
-    runAction("Loading ticket...", loadAll);
+    runAction("Loading ticket...", async () => {
+      await loadAll();
+    });
   }, [tokenGetter, loadAll]);
 
   useEffect(() => {
@@ -201,7 +242,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
           <div style={{ marginTop: 10 }}>
             <button
               className="btn btn-secondary"
-              onClick={() => runAction("Refreshing...", loadAll)}
+              onClick={() => runAction("Refreshing...", () => loadAll())}
               disabled={Boolean(working)}
             >
               Refresh
@@ -235,7 +276,8 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                 );
 
                 setLatestAgentRun(run);
-                await loadAll();
+                setSelectedAgentRunId(run.id);
+                await loadAll(run.id);
               })
             }
             onExecuteAgentTools={() =>
@@ -252,7 +294,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(latestAgentRun.id);
               })
             }
             onOrderTool={() =>
@@ -271,7 +313,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
             onRefundTool={() =>
@@ -292,12 +334,20 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
           />
 
+          <AgentRunHistoryPanel
+            runs={agentRuns}
+            selectedRunId={selectedAgentRunId}
+            onSelectRun={selectAgentRun}
+          />
+
           <AgentRunSummaryPanel latestAgentRun={latestAgentRun} />
+
+          <AgentRunStepDetailPanel steps={agentSteps} />
 
           <PlannedToolsPanel plannedTools={plannedTools} />
 
@@ -319,13 +369,15 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
           />
 
           <ToolExecutionPanel
+            
             tools={tools}
+  approvals={approvals}
             onRequestApproval={(executionId) =>
               runAction("Requesting approval...", async () => {
                 await apiFetch(`/approvals/tool-executions/${executionId}/request`, {
@@ -336,7 +388,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
           />
@@ -353,7 +405,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
             onReject={(approvalId) =>
@@ -366,7 +418,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
           />
@@ -386,7 +438,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
             onCreateFromAgent={() =>
@@ -403,7 +455,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }
                 );
 
-                await loadAll();
+                await loadAll(latestAgentRun.id);
               })
             }
             onSubmit={(draftId) =>
@@ -416,7 +468,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
             onApprove={(draftId) =>
@@ -429,7 +481,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
             onSend={(draftId) =>
@@ -442,7 +494,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   }),
                 });
 
-                await loadAll();
+                await loadAll(selectedAgentRunId);
               })
             }
           />
