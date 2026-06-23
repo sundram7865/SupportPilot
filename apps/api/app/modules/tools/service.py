@@ -362,6 +362,47 @@ async def execute_tool(
 
         return execution
 
+def get_planned_tool_order_id(planned_tool: dict) -> str | None:
+    args = planned_tool.get("args") or {}
+    order_id = args.get("order_id")
+
+    if not order_id:
+        return None
+
+    return str(order_id)
+
+
+def enrich_refund_args_from_order_context(
+    args: dict,
+    order_context: dict | None,
+) -> dict:
+    enriched_args = dict(args or {})
+
+    if not order_context:
+        return enriched_args
+
+    if enriched_args.get("amount") is None:
+        amount = extract_refund_amount_from_order_context(order_context)
+
+        if amount is not None:
+            enriched_args["amount"] = amount
+
+    if not enriched_args.get("reason"):
+        enriched_args["reason"] = (
+            "Refund requested after verified UrbanKart order/payment context review."
+        )
+
+    return enriched_args
+
+
+def should_agent_derive_refund_tool(agent_run: AgentRun) -> bool:
+    category = str(agent_run.detected_category or "").upper()
+
+    return category in {
+        "PAYMENT_ISSUE",
+        "REFUND_REQUEST",
+    }
+
 
 async def execute_safe_tools_from_agent_run(
     db: Session,
@@ -370,9 +411,34 @@ async def execute_safe_tools_from_agent_run(
     requested_by_user_id: UUID | None,
 ) -> list[ToolExecution]:
     planned_tools = agent_run.planned_tools or []
+
+    read_tools: list[tuple[int, dict]] = []
+    risky_write_tools: list[tuple[int, dict]] = []
+
     executions: list[ToolExecution] = []
 
+    # Split planned tools into read tools and risky write tools.
     for index, planned_tool in enumerate(planned_tools):
+        if not isinstance(planned_tool, dict):
+            continue
+
+        tool_name = planned_tool.get("tool_name")
+
+        if not tool_name:
+            continue
+
+        tool_definition = get_tool_definition(tool_name)
+
+        if tool_definition.requires_approval:
+            risky_write_tools.append((index, planned_tool))
+        else:
+            read_tools.append((index, planned_tool))
+
+    order_context_by_order_id: dict[str, dict] = {}
+
+    # Phase 21 rule:
+    # Execute read-only tools first and collect verified context.
+    for index, planned_tool in read_tools:
         tool_name = planned_tool.get("tool_name")
         args = planned_tool.get("args") or {}
 
@@ -395,8 +461,91 @@ async def execute_safe_tools_from_agent_run(
 
         executions.append(execution)
 
-    return executions
+        if (
+            tool_name == ToolName.URBANKART_GET_ORDER_CONTEXT.value
+            and execution.status == ToolExecutionStatus.SUCCESS.value
+            and execution.output_json
+        ):
+            order_id = str(args.get("order_id") or "")
 
+            if order_id:
+                order_context_by_order_id[order_id] = execution.output_json
+
+    planned_refund_order_ids: set[str] = set()
+
+    # Then create blocked risky executions using verified read output.
+    for index, planned_tool in risky_write_tools:
+        tool_name = planned_tool.get("tool_name")
+        args = dict(planned_tool.get("args") or {})
+
+        if not tool_name:
+            continue
+
+        if tool_name == ToolName.URBANKART_REQUEST_REFUND.value:
+            order_id = str(args.get("order_id") or "")
+
+            if order_id:
+                planned_refund_order_ids.add(order_id)
+
+            order_context = order_context_by_order_id.get(order_id)
+            args = enrich_refund_args_from_order_context(
+                args=args,
+                order_context=order_context,
+            )
+
+        idempotency_key = f"agent_run:{agent_run.id}:tool:{index}:{tool_name}"
+
+        execution = await execute_tool(
+            db=db,
+            organization=organization,
+            tool_name=tool_name,
+            args=args,
+            requested_by_user_id=requested_by_user_id,
+            ticket_id=agent_run.ticket_id,
+            agent_run_id=agent_run.id,
+            idempotency_key=idempotency_key,
+            allow_risky_execution=False,
+        )
+
+        executions.append(execution)
+
+    # Phase 21 fallback:
+    # If agent planned only read tools, derive refund approval from verified context.
+    if should_agent_derive_refund_tool(agent_run):
+        for order_id, order_context in order_context_by_order_id.items():
+            if order_id in planned_refund_order_ids:
+                continue
+
+            refund_args = enrich_refund_args_from_order_context(
+                args={
+                    "order_id": order_id,
+                    "reason": (
+                        "Refund requested after verified UrbanKart order/payment context review."
+                    ),
+                },
+                order_context=order_context,
+            )
+
+            idempotency_key = (
+                f"agent_run:{agent_run.id}:derived:"
+                f"{ToolName.URBANKART_REQUEST_REFUND.value}:{order_id}"
+            )
+
+            execution = await execute_tool(
+                db=db,
+                organization=organization,
+                tool_name=ToolName.URBANKART_REQUEST_REFUND.value,
+                args=refund_args,
+                requested_by_user_id=requested_by_user_id,
+                ticket_id=agent_run.ticket_id,
+                agent_run_id=agent_run.id,
+                idempotency_key=idempotency_key,
+                allow_risky_execution=False,
+            )
+
+            executions.append(execution)
+
+    return executions
 
 async def execute_approved_tool_execution(
     db: Session,
