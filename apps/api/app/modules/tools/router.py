@@ -1,5 +1,6 @@
 from uuid import UUID
-
+from app.common.enums import ToolApprovalStatus, ToolExecutionStatus
+from app.modules.approvals.service import create_approval_request_for_tool_execution
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -129,11 +130,48 @@ async def execute_agent_run_safe_tools(
         requested_by_user_id=current_user.id,
     )
 
+    for execution in executions:
+        should_create_approval = (
+            execution.status == ToolExecutionStatus.BLOCKED_APPROVAL_REQUIRED.value
+            and execution.approval_status
+            in {
+                ToolApprovalStatus.PENDING.value,
+                ToolApprovalStatus.REQUIRED.value,
+            }
+        )
+
+        if should_create_approval:
+            create_approval_request_for_tool_execution(
+                db=db,
+                organization_id=organization.id,
+                execution_id=execution.id,
+                requested_by_user_id=current_user.id,
+                request_reason=(
+                    "Approval automatically created because the agent planned "
+                    "a risky tool execution."
+                ),
+                metadata_json={
+                    "source": "agent_run_execute_safe",
+                    "agent_run_id": str(agent_run.id),
+                    "ticket_id": str(agent_run.ticket_id),
+                    "tool_name": execution.tool_name,
+                },
+            )
+
+    refreshed_executions = db.scalars(
+        select(ToolExecution)
+        .where(ToolExecution.organization_id == organization.id)
+        .where(ToolExecution.agent_run_id == agent_run.id)
+        .order_by(desc(ToolExecution.created_at))
+    ).all()
+
     return AgentRunToolExecutionResponse(
         agent_run_id=str(agent_run.id),
-        executions=[to_tool_execution_response(execution) for execution in executions],
+        executions=[
+            to_tool_execution_response(execution)
+            for execution in refreshed_executions
+        ],
     )
-
 
 @router.get(
     "/executions/{execution_id}",
