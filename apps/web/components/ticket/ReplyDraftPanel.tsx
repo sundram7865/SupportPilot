@@ -6,6 +6,30 @@ import { Section } from "@/components/ui/Section";
 import { statusTone } from "@/lib/format";
 import type { ReplyDraft } from "@/types/api";
 
+function getDraftHint(status: string) {
+  if (status === "DRAFT") {
+    return "Submit this draft for approval before sending.";
+  }
+
+  if (status === "PENDING_APPROVAL") {
+    return "Waiting for approval before it can be sent.";
+  }
+
+  if (status === "APPROVED") {
+    return "Approved and ready to send to the customer.";
+  }
+
+  if (status === "SENT") {
+    return "This reply was sent to the customer.";
+  }
+
+  if (status === "REJECTED") {
+    return "This draft was rejected. Edit it before submitting again.";
+  }
+
+  return "";
+}
+
 export function ReplyDraftPanel({
   drafts,
   onCreate,
@@ -55,24 +79,43 @@ export function ReplyDraftPanel({
             </div>
 
             <div className="muted" style={{ marginTop: 6 }}>
-              {draft.source}
+              Source: {draft.source}
             </div>
 
-            <div style={{ marginTop: 8 }}>{draft.body}</div>
+            <div className="muted" style={{ marginTop: 6 }}>
+              {getDraftHint(draft.status)}
+            </div>
+
+            <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
+              {draft.body}
+            </div>
+
+            {draft.rejection_reason ? (
+              <div className="error" style={{ marginTop: 8 }}>
+                Rejection reason: {draft.rejection_reason}
+              </div>
+            ) : null}
+
+            {draft.approval_reason ? (
+              <div className="success" style={{ marginTop: 8 }}>
+                Approval reason: {draft.approval_reason}
+              </div>
+            ) : null}
+
+            {draft.sent_message_id ? (
+              <div className="success" style={{ marginTop: 8 }}>
+                Sent message ID: {draft.sent_message_id}
+              </div>
+            ) : null}
 
             <div className="btn-row" style={{ marginTop: 10 }}>
-              {draft.status === "DRAFT" ? (
-                <>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => onSubmit(draft.id)}
-                  >
-                    Submit Approval
-                  </button>
-                  <button className="btn" onClick={() => onSend(draft.id)}>
-                    Send Direct
-                  </button>
-                </>
+              {draft.status === "DRAFT" || draft.status === "REJECTED" ? (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => onSubmit(draft.id)}
+                >
+                  Submit Approval
+                </button>
               ) : null}
 
               {draft.status === "PENDING_APPROVAL" ? (
@@ -86,7 +129,13 @@ export function ReplyDraftPanel({
 
               {draft.status === "APPROVED" ? (
                 <button className="btn" onClick={() => onSend(draft.id)}>
-                  Send
+                  Send to Customer
+                </button>
+              ) : null}
+
+              {draft.status === "SENT" ? (
+                <button className="btn btn-secondary" disabled>
+                  Already Sent
                 </button>
               ) : null}
             </div>
