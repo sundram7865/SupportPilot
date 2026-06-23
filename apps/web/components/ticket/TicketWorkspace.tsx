@@ -290,7 +290,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
                   method: "POST",
                   getToken: tokenGetter,
                   body: JSON.stringify({
-                    execute_read_only_only: true,
+                    execute_read_only_only: false,
                   }),
                 });
 
