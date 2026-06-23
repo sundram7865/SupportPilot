@@ -11,7 +11,9 @@ from app.common.enums import (
     CustomerReplyDraftSource,
     CustomerReplyDraftStatus,
     TicketMessageSenderType,
+    TicketStatus,
     TicketTimelineEventType,
+    TicketTransitionTrigger,
     ToolRiskLevel,
 )
 from app.modules.agent.models import AgentRun
@@ -20,6 +22,7 @@ from app.modules.organizations.models import Organization
 from app.modules.realtime.publisher import publish_timeline_event_after_commit
 from app.modules.replies.models import CustomerReplyDraft
 from app.modules.tickets.models import Ticket, TicketMessage, TicketTimelineEvent
+from app.modules.tickets.service import add_public_message, transition_ticket_status
 
 
 def add_reply_timeline_event(
@@ -445,38 +448,63 @@ def create_ticket_message_from_reply_draft(
     draft: CustomerReplyDraft,
     sent_by_user_id: UUID | None,
 ) -> TicketMessage:
-    message_kwargs = {
-        "organization_id": organization_id,
-        "ticket_id": draft.ticket_id,
-        "sender_type": TicketMessageSenderType.AGENT.value,
-    }
+    ticket = get_ticket_or_404(
+        db=db,
+        organization_id=organization_id,
+        ticket_id=draft.ticket_id,
+    )
 
-    if hasattr(TicketMessage, "sender_user_id"):
-        message_kwargs["sender_user_id"] = sent_by_user_id
-
-    if hasattr(TicketMessage, "is_public"):
-        message_kwargs["is_public"] = True
-
-    if hasattr(TicketMessage, "body"):
-        message_kwargs["body"] = draft.body
-    elif hasattr(TicketMessage, "content"):
-        message_kwargs["content"] = draft.body
-    elif hasattr(TicketMessage, "message"):
-        message_kwargs["message"] = draft.body
-    elif hasattr(TicketMessage, "message_text"):
-        message_kwargs["message_text"] = draft.body
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="TicketMessage model has no supported message body field.",
-        )
-
-    message = TicketMessage(**message_kwargs)
-    db.add(message)
-    db.flush()
+    message = add_public_message(
+        db=db,
+        ticket=ticket,
+        body=draft.body,
+        sender_type=TicketMessageSenderType.AGENT,
+        sender_user_id=sent_by_user_id,
+        sender_name="Support Agent",
+        sender_email=None,
+        metadata_json={
+            "source": "customer_reply_draft",
+            "reply_draft_id": str(draft.id),
+            "agent_run_id": str(draft.agent_run_id) if draft.agent_run_id else None,
+            "approval_request_id": (
+                str(draft.approval_request_id)
+                if draft.approval_request_id
+                else None
+            ),
+        },
+    )
 
     return message
 
+def transition_ticket_after_customer_reply(
+    db: Session,
+    organization_id: UUID,
+    ticket_id: UUID,
+    actor_user_id: UUID | None,
+    draft_id: UUID,
+) -> None:
+    ticket = get_ticket_or_404(
+        db=db,
+        organization_id=organization_id,
+        ticket_id=ticket_id,
+    )
+
+    if ticket.status in {
+        TicketStatus.OPEN.value,
+        TicketStatus.IN_PROGRESS.value,
+    }:
+        transition_ticket_status(
+            db=db,
+            ticket=ticket,
+            to_status=TicketStatus.WAITING_FOR_CUSTOMER,
+            actor_user_id=actor_user_id,
+            trigger=TicketTransitionTrigger.AGENT_ACTION,
+            reason="Customer reply sent.",
+            metadata_json={
+                "source": "customer_reply_delivery",
+                "reply_draft_id": str(draft_id),
+            },
+        )
 
 def send_reply_draft(
     db: Session,
@@ -487,13 +515,22 @@ def send_reply_draft(
 ) -> CustomerReplyDraft:
     draft = get_reply_draft_or_404(db, organization_id, draft_id)
 
-    if draft.status not in {
-        CustomerReplyDraftStatus.APPROVED.value,
-        CustomerReplyDraftStatus.DRAFT.value,
-    }:
+    if draft.status == CustomerReplyDraftStatus.SENT.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only approved or draft replies can be sent.",
+            detail="Reply draft was already sent.",
+        )
+
+    if draft.status != CustomerReplyDraftStatus.APPROVED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reply draft must be approved before it can be sent.",
+        )
+
+    if draft.sent_message_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Reply draft already has a sent message.",
         )
 
     message = create_ticket_message_from_reply_draft(
@@ -524,5 +561,15 @@ def send_reply_draft(
     db.commit()
     db.refresh(draft)
     publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
+
+    transition_ticket_after_customer_reply(
+        db=db,
+        organization_id=organization_id,
+        ticket_id=draft.ticket_id,
+        actor_user_id=sent_by_user_id,
+        draft_id=draft.id,
+    )
+
+    db.refresh(draft)
 
     return draft
