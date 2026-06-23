@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     redis_url:str
     
     urbankart_base_url:str="http://localhost:8001"
-    urbankart_api_key: str="dev_urbankaert_key"
+    urbankart_api_key: str = "dev_urbankart_key"
     dev_auth_enabled: bool = True
     integration_secret_key: str
     clerk_issuer: str | None = None

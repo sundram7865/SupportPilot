@@ -24,3 +24,4 @@ class AgentState(TypedDict, total=False):
     decision: str
 
     error_message: str | None
+    classification_confidence: float
