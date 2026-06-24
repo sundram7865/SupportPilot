@@ -7,12 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.enums import (
+    AuditAction,
+    AuditResourceType,
     TicketTimelineEventType,
     ToolApprovalStatus,
     ToolExecutionStatus,
     ToolName,
 )
 from app.modules.agent.models import AgentRun
+from app.modules.audit.service import create_audit_log
 from app.modules.organizations.models import Organization
 from app.modules.realtime.publisher import publish_timeline_event_after_commit
 from app.modules.tickets.models import Ticket, TicketTimelineEvent
@@ -262,6 +265,7 @@ async def execute_tool(
     )
 
     db.add(execution)
+    db.flush()
 
     timeline_event = add_tool_timeline_event(
         db=db,
@@ -271,6 +275,25 @@ async def execute_tool(
         event_type=TicketTimelineEventType.TOOL_EXECUTION_STARTED,
         title="Tool execution started",
         description=f"Tool {tool_name} started.",
+    )
+
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=requested_by_user_id,
+        action=AuditAction.TOOL_EXECUTION_STARTED,
+        resource_type=AuditResourceType.TOOL_EXECUTION,
+        resource_id=execution.id,
+        ticket_id=ticket_id,
+        agent_run_id=agent_run_id,
+        tool_execution_id=execution.id,
+        description=f"Tool {tool_name} started.",
+        metadata_json={
+            "tool_name": tool_name,
+            "risk_level": tool_definition.risk_level.value,
+            "requires_approval": tool_definition.requires_approval,
+            "input_args": args,
+        },
     )
 
     db.commit()
@@ -291,6 +314,24 @@ async def execute_tool(
             event_type=TicketTimelineEventType.TOOL_EXECUTION_BLOCKED,
             title="Tool execution blocked",
             description=f"Tool {tool_name} requires human approval.",
+        )
+
+        create_audit_log(
+            db=db,
+            organization_id=organization.id,
+            actor_user_id=requested_by_user_id,
+            action=AuditAction.TOOL_EXECUTION_BLOCKED,
+            resource_type=AuditResourceType.TOOL_EXECUTION,
+            resource_id=execution.id,
+            ticket_id=ticket_id,
+            agent_run_id=agent_run_id,
+            tool_execution_id=execution.id,
+            description=f"Tool {tool_name} blocked for approval.",
+            metadata_json={
+                "tool_name": tool_name,
+                "approval_status": execution.approval_status,
+                "duration_ms": execution.duration_ms,
+            },
         )
 
         db.commit()
@@ -321,6 +362,7 @@ async def execute_tool(
 
         execution.status = ToolExecutionStatus.SUCCESS.value
         execution.output_json = output
+        execution.error_message = None
         execution.duration_ms = int((time.perf_counter() - started_at) * 1000)
         execution.completed_at = datetime.now(timezone.utc)
 
@@ -332,6 +374,24 @@ async def execute_tool(
             event_type=TicketTimelineEventType.TOOL_EXECUTION_COMPLETED,
             title="Tool execution completed",
             description=f"Tool {tool_name} completed successfully.",
+        )
+
+        create_audit_log(
+            db=db,
+            organization_id=organization.id,
+            actor_user_id=requested_by_user_id,
+            action=AuditAction.TOOL_EXECUTION_COMPLETED,
+            resource_type=AuditResourceType.TOOL_EXECUTION,
+            resource_id=execution.id,
+            ticket_id=ticket_id,
+            agent_run_id=agent_run_id,
+            tool_execution_id=execution.id,
+            description=f"Tool {tool_name} completed successfully.",
+            metadata_json={
+                "tool_name": tool_name,
+                "status": execution.status,
+                "duration_ms": execution.duration_ms,
+            },
         )
 
         db.commit()
@@ -356,11 +416,30 @@ async def execute_tool(
             description=str(exc),
         )
 
+        create_audit_log(
+            db=db,
+            organization_id=organization.id,
+            actor_user_id=requested_by_user_id,
+            action=AuditAction.TOOL_EXECUTION_FAILED,
+            resource_type=AuditResourceType.TOOL_EXECUTION,
+            resource_id=execution.id,
+            ticket_id=ticket_id,
+            agent_run_id=agent_run_id,
+            tool_execution_id=execution.id,
+            description=f"Tool {tool_name} failed.",
+            metadata_json={
+                "tool_name": tool_name,
+                "error_message": execution.error_message,
+                "duration_ms": execution.duration_ms,
+            },
+        )
+
         db.commit()
         db.refresh(execution)
         publish_if_exists(db, organization.id, ticket_id, timeline_event)
 
         return execution
+
 
 def get_planned_tool_order_id(planned_tool: dict) -> str | None:
     args = planned_tool.get("args") or {}
@@ -417,7 +496,6 @@ async def execute_safe_tools_from_agent_run(
 
     executions: list[ToolExecution] = []
 
-    # Split planned tools into read tools and risky write tools.
     for index, planned_tool in enumerate(planned_tools):
         if not isinstance(planned_tool, dict):
             continue
@@ -436,8 +514,6 @@ async def execute_safe_tools_from_agent_run(
 
     order_context_by_order_id: dict[str, dict] = {}
 
-    # Phase 21 rule:
-    # Execute read-only tools first and collect verified context.
     for index, planned_tool in read_tools:
         tool_name = planned_tool.get("tool_name")
         args = planned_tool.get("args") or {}
@@ -473,7 +549,6 @@ async def execute_safe_tools_from_agent_run(
 
     planned_refund_order_ids: set[str] = set()
 
-    # Then create blocked risky executions using verified read output.
     for index, planned_tool in risky_write_tools:
         tool_name = planned_tool.get("tool_name")
         args = dict(planned_tool.get("args") or {})
@@ -509,8 +584,6 @@ async def execute_safe_tools_from_agent_run(
 
         executions.append(execution)
 
-    # Phase 21 fallback:
-    # If agent planned only read tools, derive refund approval from verified context.
     if should_agent_derive_refund_tool(agent_run):
         for order_id, order_context in order_context_by_order_id.items():
             if order_id in planned_refund_order_ids:
@@ -546,6 +619,7 @@ async def execute_safe_tools_from_agent_run(
             executions.append(execution)
 
     return executions
+
 
 async def execute_approved_tool_execution(
     db: Session,
@@ -595,6 +669,24 @@ async def execute_approved_tool_execution(
             description=str(exc),
         )
 
+        create_audit_log(
+            db=db,
+            organization_id=organization.id,
+            actor_user_id=approved_by_user_id,
+            action=AuditAction.APPROVED_TOOL_EXECUTION_FAILED,
+            resource_type=AuditResourceType.TOOL_EXECUTION,
+            resource_id=execution.id,
+            ticket_id=execution.ticket_id,
+            agent_run_id=execution.agent_run_id,
+            tool_execution_id=execution.id,
+            description=f"Approved tool {execution.tool_name} failed during argument normalization.",
+            metadata_json={
+                "tool_name": execution.tool_name,
+                "error_message": execution.error_message,
+                "duration_ms": execution.duration_ms,
+            },
+        )
+
         db.commit()
         db.refresh(execution)
         publish_if_exists(db, organization.id, execution.ticket_id, timeline_event)
@@ -613,6 +705,23 @@ async def execute_approved_tool_execution(
         event_type=TicketTimelineEventType.APPROVED_TOOL_EXECUTION_STARTED,
         title="Approved tool execution started",
         description=f"Approved tool {execution.tool_name} started.",
+    )
+
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=approved_by_user_id,
+        action=AuditAction.APPROVED_TOOL_EXECUTION_STARTED,
+        resource_type=AuditResourceType.TOOL_EXECUTION,
+        resource_id=execution.id,
+        ticket_id=execution.ticket_id,
+        agent_run_id=execution.agent_run_id,
+        tool_execution_id=execution.id,
+        description=f"Approved tool {execution.tool_name} started.",
+        metadata_json={
+            "tool_name": execution.tool_name,
+            "input_args": execution.input_args,
+        },
     )
 
     db.commit()
@@ -655,6 +764,24 @@ async def execute_approved_tool_execution(
             description=f"Approved tool {execution.tool_name} completed successfully.",
         )
 
+        create_audit_log(
+            db=db,
+            organization_id=organization.id,
+            actor_user_id=approved_by_user_id,
+            action=AuditAction.APPROVED_TOOL_EXECUTION_COMPLETED,
+            resource_type=AuditResourceType.TOOL_EXECUTION,
+            resource_id=execution.id,
+            ticket_id=execution.ticket_id,
+            agent_run_id=execution.agent_run_id,
+            tool_execution_id=execution.id,
+            description=f"Approved tool {execution.tool_name} completed successfully.",
+            metadata_json={
+                "tool_name": execution.tool_name,
+                "status": execution.status,
+                "duration_ms": execution.duration_ms,
+            },
+        )
+
         db.commit()
         db.refresh(execution)
         publish_if_exists(db, organization.id, execution.ticket_id, timeline_event)
@@ -675,6 +802,24 @@ async def execute_approved_tool_execution(
             event_type=TicketTimelineEventType.APPROVED_TOOL_EXECUTION_FAILED,
             title="Approved tool execution failed",
             description=str(exc),
+        )
+
+        create_audit_log(
+            db=db,
+            organization_id=organization.id,
+            actor_user_id=approved_by_user_id,
+            action=AuditAction.APPROVED_TOOL_EXECUTION_FAILED,
+            resource_type=AuditResourceType.TOOL_EXECUTION,
+            resource_id=execution.id,
+            ticket_id=execution.ticket_id,
+            agent_run_id=execution.agent_run_id,
+            tool_execution_id=execution.id,
+            description=f"Approved tool {execution.tool_name} failed.",
+            metadata_json={
+                "tool_name": execution.tool_name,
+                "error_message": execution.error_message,
+                "duration_ms": execution.duration_ms,
+            },
         )
 
         db.commit()
