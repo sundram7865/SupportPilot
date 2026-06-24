@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from uuid import UUID
-
+from app.modules.tickets.sla import initialize_ticket_sla, update_ticket_sla_status
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -117,6 +117,12 @@ def add_public_message(
         if ticket.first_response_at is None:
             ticket.first_response_at = datetime.now(timezone.utc)
 
+        update_ticket_sla_status(
+            db=db,
+            ticket=ticket,
+            actor_user_id=sender_user_id,
+            create_timeline_events=False,
+        )
     db.commit()
     db.refresh(message)
     publish_if_exists(
@@ -285,7 +291,12 @@ def transition_ticket_status(
     ticket.status_reason = reason
 
     apply_status_side_effects(ticket, to_status.value)
-
+    update_ticket_sla_status(
+        db=db,
+        ticket=ticket,
+        actor_user_id=actor_user_id,
+        create_timeline_events=False,
+    )
     timeline_event = add_timeline_event(
         db=db,
         organization_id=ticket.organization_id,

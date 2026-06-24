@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
-
+from app.modules.tickets.sla import initialize_ticket_sla
 from app.common.enums import (
     TicketMessageSenderType,
     TicketTimelineEventType,
@@ -148,6 +148,9 @@ def to_ticket_list_item(ticket: Ticket) -> TicketListItemResponse:
         assigned_to_user_id=(
             str(ticket.assigned_to_user_id) if ticket.assigned_to_user_id else None
         ),
+                sla_status=ticket.sla_status,
+        first_response_due_at=ticket.first_response_due_at,
+        resolution_due_at=ticket.resolution_due_at,
         created_at=ticket.created_at,
         updated_at=ticket.updated_at,
     )
@@ -184,6 +187,11 @@ def to_ticket_detail(ticket: Ticket) -> TicketDetailResponse:
         first_response_at=ticket.first_response_at,
         resolved_at=ticket.resolved_at,
         closed_at=ticket.closed_at,
+        first_response_due_at=ticket.first_response_due_at,
+        resolution_due_at=ticket.resolution_due_at,
+        sla_status=ticket.sla_status,
+        sla_near_breach_notified_at=ticket.sla_near_breach_notified_at,
+        sla_breached_at=ticket.sla_breached_at,
         ai_summary=ticket.ai_summary,
         ai_confidence_score=ticket.ai_confidence_score,
         created_at=ticket.created_at,
@@ -266,7 +274,7 @@ def create_ticket(
         status_reason="Ticket created.",
         metadata_json=payload.metadata_json,
     )
-
+    initialize_ticket_sla(ticket)
     db.add(ticket)
     db.flush()
 
