@@ -12,6 +12,8 @@ from app.common.enums import (
     ToolApprovalStatus,
     ToolExecutionStatus,
 )
+from app.common.enums import AuditAction, AuditResourceType
+from app.modules.audit.service import create_audit_log
 from app.modules.approvals.models import ApprovalRequest
 from app.modules.organizations.models import Organization
 from app.modules.realtime.publisher import publish_timeline_event_after_commit
@@ -170,7 +172,24 @@ def create_approval_request_for_tool_execution(
         title="Approval request created",
         description=f"Approval requested for tool {execution.tool_name}.",
     )
-
+    create_audit_log(
+        db=db,
+        organization_id=organization_id,
+        actor_user_id=requested_by_user_id,
+        action=AuditAction.APPROVAL_REQUEST_CREATED,
+        resource_type=AuditResourceType.APPROVAL_REQUEST,
+        resource_id=approval.id,
+        ticket_id=execution.ticket_id,
+        agent_run_id=execution.agent_run_id,
+        tool_execution_id=execution.id,
+        approval_request_id=approval.id,
+        description=f"Approval request created for tool {execution.tool_name}.",
+        metadata_json={
+            "tool_name": execution.tool_name,
+            "risk_level": execution.risk_level,
+            "request_reason": request_reason,
+        },
+    )
     db.commit()
     db.refresh(approval)
     publish_if_exists(db, organization_id, execution.ticket_id, timeline_event)
@@ -211,7 +230,23 @@ async def approve_request(
         title="Approval request approved",
         description=decision_reason,
     )
-
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=decided_by_user_id,
+        action=AuditAction.APPROVAL_REQUEST_APPROVED,
+        resource_type=AuditResourceType.APPROVAL_REQUEST,
+        resource_id=approval.id,
+        ticket_id=approval.ticket_id,
+        agent_run_id=approval.agent_run_id,
+        tool_execution_id=approval.tool_execution_id,
+        approval_request_id=approval.id,
+        description="Approval request approved.",
+        metadata_json={
+            "request_type": approval.request_type,
+            "decision_reason": decision_reason,
+        },
+    )
     db.commit()
     db.refresh(approval)
     publish_if_exists(db, organization.id, approval.ticket_id, timeline_event)
@@ -230,7 +265,7 @@ async def approve_request(
         )
 
         execution.approval_status = ToolApprovalStatus.APPROVED.value
-
+        
         db.commit()
         db.refresh(execution)
 
@@ -295,7 +330,23 @@ def reject_request(
         title="Approval request rejected",
         description=decision_reason,
     )
-
+    create_audit_log(
+        db=db,
+        organization_id=organization_id,
+        actor_user_id=decided_by_user_id,
+        action=AuditAction.APPROVAL_REQUEST_REJECTED,
+        resource_type=AuditResourceType.APPROVAL_REQUEST,
+        resource_id=approval.id,
+        ticket_id=approval.ticket_id,
+        agent_run_id=approval.agent_run_id,
+        tool_execution_id=approval.tool_execution_id,
+        approval_request_id=approval.id,
+        description="Approval request rejected.",
+        metadata_json={
+            "request_type": approval.request_type,
+            "decision_reason": decision_reason,
+        },
+    )
     db.commit()
     db.refresh(approval)
     publish_if_exists(db, organization_id, approval.ticket_id, timeline_event)
