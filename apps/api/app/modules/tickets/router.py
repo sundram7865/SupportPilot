@@ -9,6 +9,8 @@ from app.common.enums import (
     TicketTimelineEventType,
     TicketTransitionTrigger,
 )
+from app.common.enums import AuditAction, AuditResourceType
+from app.modules.audit.service import create_audit_log
 from app.db.session import get_db
 from app.modules.auth.dependencies import (
     get_current_organization,
@@ -296,7 +298,24 @@ def create_ticket(
         title="Ticket created",
         description=f"Ticket {ticket.ticket_number} was created.",
     )
-
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=current_user.id,
+        action=AuditAction.TICKET_CREATED,
+        resource_type=AuditResourceType.TICKET,
+        resource_id=ticket.id,
+        ticket_id=ticket.id,
+        description=f"Ticket {ticket.ticket_number} was created.",
+        metadata_json={
+            "ticket_number": ticket.ticket_number,
+            "priority": ticket.priority,
+            "category": ticket.category,
+            "source": ticket.source,
+            "customer_email": ticket.customer_email,
+            "external_order_id": ticket.external_order_id,
+        },
+    )
     db.commit()
 
     ticket = get_ticket_or_404(db, organization.id, ticket.id)
@@ -490,7 +509,22 @@ def update_ticket(
             event_type=TicketTimelineEventType.CUSTOMER_UPDATED,
             title="Customer details updated",
         )
-
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=current_user.id,
+        action=AuditAction.TICKET_UPDATED,
+        resource_type=AuditResourceType.TICKET,
+        resource_id=ticket.id,
+        ticket_id=ticket.id,
+        description=f"Ticket {ticket.ticket_number} was updated.",
+        metadata_json={
+                "updated_fields": payload.model_dump(
+                exclude_unset=True,
+                mode="json",
+            )
+        },
+    )
     db.commit()
 
     ticket = get_ticket_or_404(db, organization.id, ticket_id)
@@ -521,7 +555,21 @@ def transition_ticket(
         reason=payload.reason,
         metadata_json=payload.metadata_json,
     )
-
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=current_user.id,
+        action=AuditAction.TICKET_STATUS_CHANGED,
+        resource_type=AuditResourceType.TICKET,
+        resource_id=ticket.id,
+        ticket_id=ticket.id,
+        description=f"Ticket {ticket.ticket_number} transitioned to {payload.to_status}.",
+        metadata_json={
+            "to_status": payload.to_status,
+            "trigger": payload.trigger,
+            "reason": payload.reason,
+        },
+    )
     db.commit()
 
     ticket = get_ticket_or_404(db, organization.id, ticket_id)
@@ -562,7 +610,20 @@ def add_ticket_message(
         sender_email=str(payload.sender_email) if payload.sender_email else current_user.email,
         metadata_json=payload.metadata_json,
     )
-
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=current_user.id,
+        action=AuditAction.TICKET_MESSAGE_ADDED,
+        resource_type=AuditResourceType.TICKET_MESSAGE,
+        resource_id=message.id,
+        ticket_id=ticket.id,
+        description="Ticket message added.",
+        metadata_json={
+            "sender_type": message.sender_type,
+            "is_public": message.is_public,
+        },
+    )
     db.commit()
     db.refresh(message)
 
@@ -590,7 +651,16 @@ def add_ticket_internal_note(
         author_user_id=current_user.id,
         metadata_json=payload.metadata_json,
     )
-
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=current_user.id,
+        action=AuditAction.TICKET_INTERNAL_NOTE_ADDED,
+        resource_type=AuditResourceType.TICKET_INTERNAL_NOTE,
+        resource_id=note.id,
+        ticket_id=ticket.id,
+        description="Internal note added to ticket.",
+    )
     db.commit()
     db.refresh(note)
 
