@@ -14,17 +14,17 @@ from app.modules.tickets.models import Ticket, TicketTimelineEvent
 
 
 FIRST_RESPONSE_SLA = {
-    TicketPriority.URGENT.value: timedelta(minutes=1),
+    TicketPriority.URGENT.value: timedelta(minutes=30),
     TicketPriority.HIGH.value: timedelta(hours=1),
-    TicketPriority.MEDIUM.value: timedelta(hours=1),
-    TicketPriority.LOW.value: timedelta(hours=1),
+    TicketPriority.MEDIUM.value: timedelta(hours=4),
+    TicketPriority.LOW.value: timedelta(hours=8),
 }
 
 RESOLUTION_SLA = {
-    TicketPriority.URGENT.value: timedelta(hours=2),
-    TicketPriority.HIGH.value: timedelta(hours=2),
-    TicketPriority.MEDIUM.value: timedelta(hours=2),
-    TicketPriority.LOW.value: timedelta(hours=2),
+    TicketPriority.URGENT.value: timedelta(hours=4),
+    TicketPriority.HIGH.value: timedelta(hours=8),
+    TicketPriority.MEDIUM.value: timedelta(hours=24),
+    TicketPriority.LOW.value: timedelta(hours=48),
 }
 
 NEAR_BREACH_WINDOW = timedelta(minutes=30)
