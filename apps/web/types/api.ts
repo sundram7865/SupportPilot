@@ -40,6 +40,15 @@ export type Ticket = {
   created_at: string;
   updated_at?: string;
   messages?: TicketMessage[];
+  first_response_at?: string | null;
+  resolved_at?: string | null;
+  closed_at?: string | null;
+
+  first_response_due_at?: string | null;
+  resolution_due_at?: string | null;
+  sla_status?: string | null;
+  sla_near_breach_notified_at?: string | null;
+  sla_breached_at?: string | null;
 };
 
 export type TicketMessage = {
