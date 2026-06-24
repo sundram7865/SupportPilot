@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.common.enums import (
     ApprovalRequestStatus,
     ApprovalRequestType,
+    AuditAction,
+    AuditResourceType,
     CustomerReplyDraftSource,
     CustomerReplyDraftStatus,
     TicketMessageSenderType,
@@ -18,6 +20,7 @@ from app.common.enums import (
 )
 from app.modules.agent.models import AgentRun
 from app.modules.approvals.models import ApprovalRequest
+from app.modules.audit.service import create_audit_log
 from app.modules.organizations.models import Organization
 from app.modules.realtime.publisher import publish_timeline_event_after_commit
 from app.modules.replies.models import CustomerReplyDraft
@@ -153,6 +156,7 @@ def create_reply_draft(
     )
 
     db.add(draft)
+    db.flush()
 
     timeline_event = add_reply_timeline_event(
         db=db,
@@ -162,6 +166,24 @@ def create_reply_draft(
         event_type=TicketTimelineEventType.REPLY_DRAFT_CREATED,
         title="Reply draft created",
         description=f"Reply draft created from {source.value}.",
+    )
+
+    create_audit_log(
+        db=db,
+        organization_id=organization.id,
+        actor_user_id=created_by_user_id,
+        action=AuditAction.REPLY_DRAFT_CREATED,
+        resource_type=AuditResourceType.REPLY_DRAFT,
+        resource_id=draft.id,
+        ticket_id=ticket_id,
+        agent_run_id=agent_run_id,
+        reply_draft_id=draft.id,
+        description="Reply draft created.",
+        metadata_json={
+            "source": source.value,
+            "subject": subject,
+            "has_body": bool(body),
+        },
     )
 
     db.commit()
@@ -261,6 +283,24 @@ def update_reply_draft(
         description="Reply draft was edited.",
     )
 
+    create_audit_log(
+        db=db,
+        organization_id=organization_id,
+        actor_user_id=updated_by_user_id,
+        action=AuditAction.REPLY_DRAFT_UPDATED,
+        resource_type=AuditResourceType.REPLY_DRAFT,
+        resource_id=draft.id,
+        ticket_id=draft.ticket_id,
+        agent_run_id=draft.agent_run_id,
+        reply_draft_id=draft.id,
+        description="Reply draft updated.",
+        metadata_json={
+            "subject_updated": subject is not None,
+            "body_updated": body is not None,
+            "metadata_updated": metadata_json is not None,
+        },
+    )
+
     db.commit()
     db.refresh(draft)
     publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
@@ -323,6 +363,24 @@ def submit_reply_draft_for_approval(
         description=request_reason,
     )
 
+    create_audit_log(
+        db=db,
+        organization_id=organization_id,
+        actor_user_id=requested_by_user_id,
+        action=AuditAction.REPLY_DRAFT_SUBMITTED_FOR_APPROVAL,
+        resource_type=AuditResourceType.REPLY_DRAFT,
+        resource_id=draft.id,
+        ticket_id=draft.ticket_id,
+        agent_run_id=draft.agent_run_id,
+        approval_request_id=approval.id,
+        reply_draft_id=draft.id,
+        description="Reply draft submitted for approval.",
+        metadata_json={
+            "request_reason": request_reason,
+            "approval_request_id": str(approval.id),
+        },
+    )
+
     db.commit()
     db.refresh(draft)
     publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
@@ -377,6 +435,23 @@ def approve_reply_draft(
         event_type=TicketTimelineEventType.REPLY_DRAFT_APPROVED,
         title="Reply draft approved",
         description=reason,
+    )
+
+    create_audit_log(
+        db=db,
+        organization_id=organization_id,
+        actor_user_id=approved_by_user_id,
+        action=AuditAction.REPLY_DRAFT_APPROVED,
+        resource_type=AuditResourceType.REPLY_DRAFT,
+        resource_id=draft.id,
+        ticket_id=draft.ticket_id,
+        agent_run_id=draft.agent_run_id,
+        approval_request_id=draft.approval_request_id,
+        reply_draft_id=draft.id,
+        description="Reply draft approved.",
+        metadata_json={
+            "reason": reason,
+        },
     )
 
     db.commit()
@@ -435,6 +510,23 @@ def reject_reply_draft(
         description=reason,
     )
 
+    create_audit_log(
+        db=db,
+        organization_id=organization_id,
+        actor_user_id=rejected_by_user_id,
+        action=AuditAction.REPLY_DRAFT_REJECTED,
+        resource_type=AuditResourceType.REPLY_DRAFT,
+        resource_id=draft.id,
+        ticket_id=draft.ticket_id,
+        agent_run_id=draft.agent_run_id,
+        approval_request_id=draft.approval_request_id,
+        reply_draft_id=draft.id,
+        description="Reply draft rejected.",
+        metadata_json={
+            "reason": reason,
+        },
+    )
+
     db.commit()
     db.refresh(draft)
     publish_if_exists(db, organization_id, draft.ticket_id, timeline_event)
@@ -476,6 +568,7 @@ def create_ticket_message_from_reply_draft(
 
     return message
 
+
 def transition_ticket_after_customer_reply(
     db: Session,
     organization_id: UUID,
@@ -505,6 +598,7 @@ def transition_ticket_after_customer_reply(
                 "reply_draft_id": str(draft_id),
             },
         )
+
 
 def send_reply_draft(
     db: Session,
@@ -556,6 +650,24 @@ def send_reply_draft(
         event_type=TicketTimelineEventType.CUSTOMER_REPLY_SENT,
         title="Customer reply sent",
         description="Approved reply was sent to the customer.",
+    )
+
+    create_audit_log(
+        db=db,
+        organization_id=organization_id,
+        actor_user_id=sent_by_user_id,
+        action=AuditAction.CUSTOMER_REPLY_SENT,
+        resource_type=AuditResourceType.REPLY_DRAFT,
+        resource_id=draft.id,
+        ticket_id=draft.ticket_id,
+        agent_run_id=draft.agent_run_id,
+        approval_request_id=draft.approval_request_id,
+        reply_draft_id=draft.id,
+        description="Approved reply sent to customer.",
+        metadata_json={
+            "sent_message_id": str(message.id),
+            "send_notes": send_notes,
+        },
     )
 
     db.commit()
