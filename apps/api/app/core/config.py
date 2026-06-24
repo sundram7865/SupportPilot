@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     urbankart_api_key: str = "dev_urbankart_key"
     dev_auth_enabled: bool = True
     integration_secret_key: str
+    celery_broker_url: str
+    celery_result_backend: str
     clerk_issuer: str | None = None
     clerk_jwks_url: str | None = None
     ai_provider: str = "mock"

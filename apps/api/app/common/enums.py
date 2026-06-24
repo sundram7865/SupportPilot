@@ -105,6 +105,8 @@ class TicketTimelineEventType(StrEnum):
     REPLY_DRAFT_APPROVED = "REPLY_DRAFT_APPROVED"
     REPLY_DRAFT_REJECTED = "REPLY_DRAFT_REJECTED"
     CUSTOMER_REPLY_SENT = "CUSTOMER_REPLY_SENT"
+    SLA_NEAR_BREACH = "SLA_NEAR_BREACH"
+    SLA_BREACHED = "SLA_BREACHED"
 
 
 class TicketTransitionTrigger(StrEnum):
@@ -114,7 +116,12 @@ class TicketTransitionTrigger(StrEnum):
     SYSTEM_POLICY = "SYSTEM_POLICY"
     APPROVAL_DECISION = "APPROVAL_DECISION"
 
-
+class TicketSlaStatus(StrEnum):
+    OK = "OK"
+    NEAR_BREACH = "NEAR_BREACH"
+    BREACHED = "BREACHED"
+    
+    
 class KnowledgeDocumentType(StrEnum):
     POLICY = "POLICY"
     FAQ = "FAQ"

@@ -129,6 +129,9 @@ class TicketListItemResponse(BaseModel):
     assigned_to_user_id: str | None
     created_at: datetime
     updated_at: datetime
+    sla_status: str | None = None
+    first_response_due_at: datetime | None = None
+    resolution_due_at: datetime | None = None
 
 
 class TicketDetailResponse(BaseModel):
@@ -157,7 +160,11 @@ class TicketDetailResponse(BaseModel):
     first_response_at: datetime | None
     resolved_at: datetime | None
     closed_at: datetime | None
-
+    first_response_due_at: datetime | None
+    resolution_due_at: datetime | None
+    sla_status: str
+    sla_near_breach_notified_at: datetime | None
+    sla_breached_at: datetime | None
     ai_summary: str | None
     ai_confidence_score: int | None
 

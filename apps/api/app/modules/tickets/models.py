@@ -4,6 +4,8 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.common.enums import TicketSlaStatus
+
 
 from app.common.enums import (
     TicketCategory,
@@ -125,6 +127,35 @@ class Ticket(Base):
     )
 
     closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    
+    first_response_due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    resolution_due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    sla_status: Mapped[str] = mapped_column(
+        String(50),
+        default=TicketSlaStatus.OK.value,
+        nullable=False,
+        index=True,
+    )
+
+    sla_near_breach_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    sla_breached_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
