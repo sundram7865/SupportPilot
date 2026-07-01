@@ -345,3 +345,87 @@ export type AgentRunStep = {
   completed_at?: string | null;
 };
 
+export type AnalyticsBreakdownItem = {
+  key: string;
+  count: number;
+};
+
+export type AnalyticsTrendPoint = {
+  date: string;
+  count: number;
+};
+
+export type AnalyticsOverview = {
+  total_tickets: number;
+  open_tickets: number;
+  in_progress_tickets: number;
+  waiting_tickets: number;
+  resolved_tickets: number;
+  closed_tickets: number;
+
+  urgent_tickets: number;
+  sla_ok_tickets: number;
+  sla_near_breach_tickets: number;
+  sla_breached_tickets: number;
+
+  agent_runs_total: number;
+  agent_runs_completed: number;
+  agent_runs_failed: number;
+
+  tool_executions_total: number;
+  tool_executions_success: number;
+  tool_executions_failed: number;
+  tool_executions_blocked: number;
+
+  approvals_total: number;
+  approvals_pending: number;
+  approvals_approved: number;
+  approvals_rejected: number;
+
+  replies_total: number;
+  replies_sent: number;
+
+  audit_events_total: number;
+
+  avg_first_response_minutes: number | null;
+  avg_resolution_minutes: number | null;
+
+  tickets_by_status: AnalyticsBreakdownItem[];
+  tickets_by_priority: AnalyticsBreakdownItem[];
+  tickets_by_category: AnalyticsBreakdownItem[];
+  tickets_by_source: AnalyticsBreakdownItem[];
+  tickets_by_sla_status: AnalyticsBreakdownItem[];
+
+  recent_ticket_trend: AnalyticsTrendPoint[];
+};
+
+
+export type AuditLog = {
+  id: string;
+  organization_id: string;
+  actor_user_id: string | null;
+
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+
+  ticket_id: string | null;
+  agent_run_id: string | null;
+  tool_execution_id: string | null;
+  approval_request_id: string | null;
+  reply_draft_id: string | null;
+
+  description: string | null;
+  metadata_json: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+
+  created_at: string;
+};
+
+export type AuditLogListResponse = {
+  items: AuditLog[];
+  total: number;
+  limit: number;
+  offset: number;
+};
