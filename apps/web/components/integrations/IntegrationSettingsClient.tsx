@@ -84,7 +84,7 @@ export function IntegrationSettingsClient() {
       {error ? <ErrorBanner message={error} /> : null}
 
       {loading ? (
-        <LoadingState label="Loading integration settings..." />
+        <LoadingState message="Loading integration settings..." />
       ) : (
         <div className="stack">
           <Section title="UrbanKart Connection">
