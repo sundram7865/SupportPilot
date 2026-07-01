@@ -12,6 +12,7 @@ const isPublicRoute = createRouteMatcher([
 
   // Static widget script
   "/widget(.*)",
+   "/e2e-health",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
