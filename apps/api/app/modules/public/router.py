@@ -17,6 +17,7 @@ from app.modules.public.schemas import (
     PublicTicketCreateRequest,
     PublicTicketCreateResponse,
 )
+from app.core.rate_limit import public_read_rate_limit, public_write_rate_limit
 from app.modules.tickets.models import Ticket, TicketMessage, TicketTimelineEvent
 from app.modules.tickets.service import generate_ticket_number
 
@@ -43,6 +44,7 @@ def get_public_organization_or_404(
 @router.get(
     "/organizations/{slug}",
     response_model=PublicOrganizationResponse,
+     dependencies=[Depends(public_read_rate_limit)]
 )
 def get_public_organization(
     slug: str,
@@ -62,6 +64,7 @@ def get_public_organization(
     "/organizations/{slug}/tickets",
     response_model=PublicTicketCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(public_write_rate_limit)],
 )
 def create_public_ticket(
     slug: str,

@@ -1,6 +1,6 @@
 import secrets
 import time
-
+from app.core.rate_limit import external_api_rate_limit
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -114,6 +114,7 @@ def get_active_api_connection_or_401(
     "/tickets",
     response_model=ExternalTicketCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(external_api_rate_limit)]
 )
 def create_external_ticket(
     payload: ExternalTicketCreateRequest,
