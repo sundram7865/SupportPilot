@@ -6,6 +6,12 @@ import { Section } from "@/components/ui/Section";
 import { formatDate, statusTone } from "@/lib/format";
 import type { AgentRunStep } from "@/types/api";
 
+function formatDuration(ms?: number | null) {
+  if (ms == null) return "N/A";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
 export function AgentRunStepDetailPanel({
   steps,
 }: {
@@ -16,7 +22,7 @@ export function AgentRunStepDetailPanel({
   return (
     <Section title="Agent Step Details">
       <div className="list">
-        {steps.map((step) => {
+        {steps.map((step, index) => {
           const open = openStepId === step.id;
 
           return (
@@ -32,17 +38,19 @@ export function AgentRunStepDetailPanel({
                 }}
                 onClick={() => setOpenStepId(open ? null : step.id)}
               >
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <strong>{step.step_name}</strong>
-                  <Badge tone={statusTone(step.status) as any}>
-                    {step.status}
-                  </Badge>
-                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <strong>
+                      {index + 1}. {step.step_name}
+                    </strong>
 
-                <div className="muted" style={{ marginTop: 6 }}>
-                  Duration:{" "}
-                  {step.duration_ms != null ? `${step.duration_ms}ms` : "N/A"} ·{" "}
-                  {formatDate(step.created_at)}
+                    <div className="muted" style={{ marginTop: 6 }}>
+                      Duration: {formatDuration(step.duration_ms)} ·{" "}
+                      {formatDate(step.created_at)}
+                    </div>
+                  </div>
+
+                  <Badge tone={statusTone(step.status) as any}>{step.status}</Badge>
                 </div>
               </button>
 
@@ -54,17 +62,21 @@ export function AgentRunStepDetailPanel({
 
               {open ? (
                 <div style={{ marginTop: 12 }}>
-                  <div className="muted">Input</div>
-                  <pre className="code">
-                    {JSON.stringify(step.input_json || {}, null, 2)}
-                  </pre>
+                  <div className="grid grid-2">
+                    <div>
+                      <div className="muted">Input</div>
+                      <pre className="code">
+                        {JSON.stringify(step.input_json || {}, null, 2)}
+                      </pre>
+                    </div>
 
-                  <div className="muted" style={{ marginTop: 12 }}>
-                    Output
+                    <div>
+                      <div className="muted">Output</div>
+                      <pre className="code">
+                        {JSON.stringify(step.output_json || {}, null, 2)}
+                      </pre>
+                    </div>
                   </div>
-                  <pre className="code">
-                    {JSON.stringify(step.output_json || {}, null, 2)}
-                  </pre>
                 </div>
               ) : null}
             </div>
@@ -72,7 +84,7 @@ export function AgentRunStepDetailPanel({
         })}
 
         {steps.length === 0 ? (
-          <EmptyState message="No agent step details yet." />
+          <EmptyState message="No step-level trace yet. Run the agent to see node execution details." />
         ) : null}
       </div>
     </Section>
