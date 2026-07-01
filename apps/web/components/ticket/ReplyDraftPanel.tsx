@@ -7,26 +7,11 @@ import { statusTone } from "@/lib/format";
 import type { ReplyDraft } from "@/types/api";
 
 function getDraftHint(status: string) {
-  if (status === "DRAFT") {
-    return "Submit this draft for approval before sending.";
-  }
-
-  if (status === "PENDING_APPROVAL") {
-    return "Waiting for approval before it can be sent.";
-  }
-
-  if (status === "APPROVED") {
-    return "Approved and ready to send to the customer.";
-  }
-
-  if (status === "SENT") {
-    return "This reply was sent to the customer.";
-  }
-
-  if (status === "REJECTED") {
-    return "This draft was rejected. Edit it before submitting again.";
-  }
-
+  if (status === "DRAFT") return "Submit this draft for approval before sending.";
+  if (status === "PENDING_APPROVAL") return "Waiting for approval before it can be sent.";
+  if (status === "APPROVED") return "Approved and ready to send to the customer.";
+  if (status === "SENT") return "This reply was sent to the customer.";
+  if (status === "REJECTED") return "This draft was rejected. Edit it before submitting again.";
   return "";
 }
 
@@ -50,7 +35,11 @@ export function ReplyDraftPanel({
   );
 
   return (
-    <Section title="Reply Drafts">
+    <Section title="Customer Reply Workflow">
+      <div className="muted" style={{ marginBottom: 10 }}>
+        Draft, approve, and send customer-facing support replies.
+      </div>
+
       <div className="form-row">
         <label className="label">New draft body</label>
         <textarea
@@ -61,7 +50,7 @@ export function ReplyDraftPanel({
       </div>
 
       <div className="btn-row">
-        <button className="btn" onClick={() => onCreate(body)}>
+        <button className="btn" onClick={() => onCreate(body)} disabled={!body.trim()}>
           Create Draft
         </button>
 
@@ -73,20 +62,21 @@ export function ReplyDraftPanel({
       <div className="list" style={{ marginTop: 16 }}>
         {drafts.map((draft) => (
           <div key={draft.id} className="list-item">
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <strong>{draft.subject || "Reply draft"}</strong>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <strong>{draft.subject || "Reply draft"}</strong>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  Source: {draft.source} · {getDraftHint(draft.status)}
+                </div>
+              </div>
+
               <Badge tone={statusTone(draft.status) as any}>{draft.status}</Badge>
             </div>
 
-            <div className="muted" style={{ marginTop: 6 }}>
-              Source: {draft.source}
-            </div>
-
-            <div className="muted" style={{ marginTop: 6 }}>
-              {getDraftHint(draft.status)}
-            </div>
-
-            <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
+            <div
+              className="list-item"
+              style={{ marginTop: 12, whiteSpace: "pre-wrap" }}
+            >
               {draft.body}
             </div>
 
@@ -108,7 +98,7 @@ export function ReplyDraftPanel({
               </div>
             ) : null}
 
-            <div className="btn-row" style={{ marginTop: 10 }}>
+            <div className="btn-row" style={{ marginTop: 12 }}>
               {draft.status === "DRAFT" || draft.status === "REJECTED" ? (
                 <button
                   className="btn btn-secondary"
@@ -142,7 +132,9 @@ export function ReplyDraftPanel({
           </div>
         ))}
 
-        {drafts.length === 0 ? <EmptyState message="No reply drafts yet." /> : null}
+        {drafts.length === 0 ? (
+          <EmptyState message="No reply drafts yet. Create a manual draft or generate one from the latest agent run." />
+        ) : null}
       </div>
     </Section>
   );
