@@ -10,9 +10,9 @@ import { TicketList } from "@/components/dashboard/TicketList";
 import { AppShell } from "@/components/layout/AppShell";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { useTickets, type TicketListFilters } from "@/hooks/useTicketQueries";
-import { bootstrapAuth } from "@/lib/api";
+import { apiFetch, bootstrapAuth } from "@/lib/api";
 import { queryKeys } from "@/lib/queryKeys";
-import type { AuthMeResponse } from "@/types/api";
+import type { AnalyticsOverview, AuthMeResponse } from "@/types/api";
 
 export function DashboardClient() {
   const { getToken, isSignedIn } = useAuth();
@@ -21,7 +21,10 @@ export function DashboardClient() {
   const [me, setMe] = useState<AuthMeResponse | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [bootLoading, setBootLoading] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   const [filters, setFilters] = useState<TicketListFilters>({
     status: "",
@@ -41,6 +44,29 @@ export function DashboardClient() {
 
   const tickets = useMemo(() => ticketsQuery.data || [], [ticketsQuery.data]);
 
+  async function loadAnalytics(currentOrgId: string) {
+    if (!tokenGetter) return;
+
+    try {
+      setAnalyticsLoading(true);
+      setAnalyticsError(null);
+
+      const data = await apiFetch<AnalyticsOverview>("/analytics/overview", {
+        method: "GET",
+        orgId: currentOrgId,
+        getToken: tokenGetter,
+      });
+
+      setAnalytics(data);
+    } catch (err) {
+      setAnalyticsError(
+        err instanceof Error ? err.message : "Failed to load analytics."
+      );
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
   async function loadBootstrap() {
     if (!isSignedIn || !tokenGetter) {
       setBootLoading(false);
@@ -55,6 +81,8 @@ export function DashboardClient() {
 
       setMe(boot.me);
       setOrgId(boot.orgId);
+
+      await loadAnalytics(boot.orgId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard.");
     } finally {
@@ -62,10 +90,14 @@ export function DashboardClient() {
     }
   }
 
-  async function refreshTickets() {
+  async function refreshDashboard() {
+    if (!orgId) return;
+
     await queryClient.invalidateQueries({
       queryKey: queryKeys.tickets.all,
     });
+
+    await loadAnalytics(orgId);
   }
 
   useEffect(() => {
@@ -74,12 +106,13 @@ export function DashboardClient() {
 
   const combinedError =
     error ||
+    analyticsError ||
     (ticketsQuery.error instanceof Error ? ticketsQuery.error.message : null);
 
   return (
     <AppShell
       title="Dashboard"
-      subtitle="Monitor tickets from admin form, public form, widget, and external API."
+      subtitle="Live support operations, SLA health, AI automation, approvals, and customer reply delivery."
       right={
         <div className="section">
           <div className="muted">Current org</div>
@@ -88,10 +121,12 @@ export function DashboardClient() {
           <div style={{ marginTop: 10 }}>
             <button
               className="btn btn-secondary"
-              onClick={refreshTickets}
-              disabled={ticketsQuery.isFetching || !orgId}
+              onClick={refreshDashboard}
+              disabled={ticketsQuery.isFetching || analyticsLoading || !orgId}
             >
-              {ticketsQuery.isFetching ? "Refreshing..." : "Refresh Tickets"}
+              {ticketsQuery.isFetching || analyticsLoading
+                ? "Refreshing..."
+                : "Refresh Dashboard"}
             </button>
           </div>
         </div>
@@ -103,10 +138,44 @@ export function DashboardClient() {
         <div className="section">Loading dashboard...</div>
       ) : (
         <>
-          <DashboardStats tickets={tickets} />
+          <DashboardStats
+            tickets={tickets}
+            analytics={analytics}
+            loading={analyticsLoading}
+          />
 
           <div className="section" style={{ marginTop: 16 }}>
-            <div className="section-title">Ticket Filters</div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 16,
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <div className="section-title">Ticket Filters</div>
+                <p className="muted" style={{ marginTop: 4 }}>
+                  Filter the live ticket list without changing organization-wide
+                  analytics above.
+                </p>
+              </div>
+
+              <button
+                className="btn btn-secondary"
+                onClick={() =>
+                  setFilters({
+                    status: "",
+                    priority: "",
+                    category: "",
+                    search: "",
+                  })
+                }
+              >
+                Clear Filters
+              </button>
+            </div>
 
             <div className="grid grid-4">
               <div className="form-row">
@@ -186,12 +255,11 @@ export function DashboardClient() {
                   <option value="ORDER_STATUS">ORDER_STATUS</option>
                   <option value="PAYMENT_ISSUE">PAYMENT_ISSUE</option>
                   <option value="REFUND_REQUEST">REFUND_REQUEST</option>
-                  <option value="RETURN_REQUEST">RETURN_REQUEST</option>
-                  <option value="DAMAGED_PRODUCT">DAMAGED_PRODUCT</option>
-                  <option value="CANCEL_ORDER">CANCEL_ORDER</option>
-                  <option value="INVOICE_REQUEST">INVOICE_REQUEST</option>
-                  <option value="WARRANTY_REQUEST">WARRANTY_REQUEST</option>
-                  <option value="GENERAL_FAQ">GENERAL_FAQ</option>
+                  <option value="RETURN_REPLACEMENT">RETURN_REPLACEMENT</option>
+                  <option value="PRODUCT_QUESTION">PRODUCT_QUESTION</option>
+                  <option value="DELIVERY_ISSUE">DELIVERY_ISSUE</option>
+                  <option value="ACCOUNT_ISSUE">ACCOUNT_ISSUE</option>
+                  <option value="COMPLAINT">COMPLAINT</option>
                   <option value="LEGAL_RISK">LEGAL_RISK</option>
                   <option value="OTHER">OTHER</option>
                 </select>
