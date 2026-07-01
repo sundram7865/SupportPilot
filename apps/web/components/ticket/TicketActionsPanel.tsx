@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/Badge";
 import type { AgentRun, Ticket } from "@/types/api";
 
 function countPlannedTools(latestAgentRun: AgentRun | null) {
@@ -34,18 +35,26 @@ export function TicketActionsPanel({
   const plannedToolCount = countPlannedTools(latestAgentRun);
   const safeToolCount = countSafeTools(latestAgentRun);
   const approvalToolCount = countApprovalTools(latestAgentRun);
-
   const canExecuteAgentTools = Boolean(latestAgentRun?.id && plannedToolCount > 0);
 
   return (
     <section className="section">
       <div className="section-header">
         <div>
-          <div className="section-title">Agent & Tool Actions</div>
+          <div className="section-title">Agent Command Center</div>
           <div className="muted">
-            Run the agent first, then execute its planned tools.
+            Run Gemini/LangGraph agent, execute safe tools, and create approval
+            blocks for risky actions.
           </div>
         </div>
+
+        {latestAgentRun ? (
+          <Badge tone={latestAgentRun.status === "FAILED" ? "red" : "blue"}>
+            {latestAgentRun.status}
+          </Badge>
+        ) : (
+          <Badge tone="yellow">NOT RUN</Badge>
+        )}
       </div>
 
       <div className="grid grid-3">
@@ -55,7 +64,7 @@ export function TicketActionsPanel({
         </div>
 
         <div className="stat-card">
-          <div className="muted">Safe tools</div>
+          <div className="muted">Safe read tools</div>
           <div className="stat-value">{safeToolCount}</div>
         </div>
 
@@ -76,7 +85,7 @@ export function TicketActionsPanel({
           disabled={!canExecuteAgentTools}
           title={
             canExecuteAgentTools
-              ? "Execute safe tools and create approval blocks for risky tools."
+              ? "Execute safe tools and block risky tools for approval."
               : "Run agent first to generate a tool plan."
           }
         >
@@ -85,16 +94,16 @@ export function TicketActionsPanel({
       </div>
 
       <div className="warning" style={{ marginTop: 14 }}>
-        Execute Agent Tools means:
-        <br />
-        Safe read tools run immediately.
-        <br />
-        Risky write tools become approval requests and do not execute until
-        approved.
+        <strong>Safety rule:</strong> read-only tools run immediately. Risky write
+        tools are blocked and require human approval before execution.
       </div>
 
       <div className="section-title" style={{ marginTop: 18 }}>
         Manual Tool Tests
+      </div>
+
+      <div className="muted" style={{ marginTop: 4 }}>
+        Use these for demo/debug without waiting for agent planning.
       </div>
 
       <div className="btn-row" style={{ marginTop: 10 }}>
@@ -103,20 +112,25 @@ export function TicketActionsPanel({
         </button>
 
         <button className="btn btn-danger" onClick={onRefundTool}>
-          Request Refund
+          Request Refund Approval
         </button>
       </div>
 
-      <div className="muted" style={{ marginTop: 12 }}>
-        Order: {ticket?.external_order_id || "ORD-1001"}
-      </div>
+      <div className="list-item" style={{ marginTop: 14 }}>
+        <div className="muted">Order used for tools</div>
+        <strong>{ticket?.external_order_id || "ORD-1001"}</strong>
 
-      {latestAgentRun ? (
-        <div className="muted" style={{ marginTop: 8 }}>
-          Latest run: {latestAgentRun.id.slice(0, 8)}... ·{" "}
-          {latestAgentRun.status}
-        </div>
-      ) : null}
+        {latestAgentRun ? (
+          <div className="muted" style={{ marginTop: 8 }}>
+            Latest run: {latestAgentRun.id.slice(0, 8)}... · Decision:{" "}
+            {latestAgentRun.decision || "NO_ACTION"}
+          </div>
+        ) : (
+          <div className="muted" style={{ marginTop: 8 }}>
+            No agent run yet.
+          </div>
+        )}
+      </div>
     </section>
   );
 }
