@@ -4,6 +4,12 @@ import { Section } from "@/components/ui/Section";
 import { formatDate, statusTone } from "@/lib/format";
 import type { AgentRun } from "@/types/api";
 
+function formatDuration(ms?: number | null) {
+  if (ms == null) return "N/A";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
 export function AgentRunSummaryPanel({
   latestAgentRun,
 }: {
@@ -12,21 +18,21 @@ export function AgentRunSummaryPanel({
   if (!latestAgentRun) {
     return (
       <Section title="Latest Agent Run">
-        <EmptyState message="No agent run yet. Click Run Agent to start." />
+        <EmptyState message="No agent run yet. Click Run Agent to start classification, risk check, planning, and drafting." />
       </Section>
     );
   }
 
   return (
-    <Section title="Latest Agent Run">
+    <Section
+      title="Latest Agent Run"
+      action={
+        <Badge tone={statusTone(latestAgentRun.status) as any}>
+          {latestAgentRun.status}
+        </Badge>
+      }
+    >
       <div className="grid grid-3">
-        <div>
-          <div className="muted">Status</div>
-          <Badge tone={statusTone(latestAgentRun.status) as any}>
-            {latestAgentRun.status}
-          </Badge>
-        </div>
-
         <div>
           <div className="muted">Decision</div>
           <strong>{latestAgentRun.decision || "NO_ACTION"}</strong>
@@ -38,40 +44,48 @@ export function AgentRunSummaryPanel({
             {latestAgentRun.risk_level || "LOW"}
           </Badge>
         </div>
+
+        <div>
+          <div className="muted">Duration</div>
+          <strong>{formatDuration(latestAgentRun.duration_ms)}</strong>
+        </div>
       </div>
 
       <div className="grid grid-3" style={{ marginTop: 14 }}>
         <div>
-          <div className="muted">Category</div>
+          <div className="muted">Detected Category</div>
           <strong>{latestAgentRun.detected_category || "Not detected"}</strong>
         </div>
 
         <div>
-          <div className="muted">Priority</div>
+          <div className="muted">Detected Priority</div>
           <strong>{latestAgentRun.detected_priority || "Not detected"}</strong>
         </div>
 
         <div>
-          <div className="muted">Duration</div>
+          <div className="muted">Provider</div>
           <strong>
-            {latestAgentRun.duration_ms != null
-              ? `${latestAgentRun.duration_ms}ms`
-              : "N/A"}
+            {latestAgentRun.provider || "N/A"}
+            {latestAgentRun.model_name ? ` · ${latestAgentRun.model_name}` : ""}
           </strong>
         </div>
       </div>
 
       {latestAgentRun.reasoning_summary ? (
-        <div style={{ marginTop: 14 }}>
+        <div className="list-item" style={{ marginTop: 14 }}>
           <div className="muted">Reasoning Summary</div>
-          <p>{latestAgentRun.reasoning_summary}</p>
+          <p style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+            {latestAgentRun.reasoning_summary}
+          </p>
         </div>
       ) : null}
 
       {latestAgentRun.draft_response ? (
-        <div style={{ marginTop: 14 }}>
+        <div className="list-item" style={{ marginTop: 14 }}>
           <div className="muted">Draft Response</div>
-          <div className="list-item">{latestAgentRun.draft_response}</div>
+          <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
+            {latestAgentRun.draft_response}
+          </div>
         </div>
       ) : null}
 
@@ -83,40 +97,8 @@ export function AgentRunSummaryPanel({
 
       <div className="muted" style={{ marginTop: 14 }}>
         Created:{" "}
-        {latestAgentRun.created_at
-          ? formatDate(latestAgentRun.created_at)
-          : "N/A"}
+        {latestAgentRun.created_at ? formatDate(latestAgentRun.created_at) : "N/A"}
       </div>
-
-      {latestAgentRun.steps?.length ? (
-        <div style={{ marginTop: 16 }}>
-          <div className="section-title">Agent Steps</div>
-
-          <div className="list">
-            {latestAgentRun.steps.map((step) => (
-              <div key={step.id} className="list-item">
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <strong>{step.step_name}</strong>
-                  <Badge tone={statusTone(step.status) as any}>
-                    {step.status}
-                  </Badge>
-                </div>
-
-                <div className="muted" style={{ marginTop: 6 }}>
-                  Duration:{" "}
-                  {step.duration_ms != null ? `${step.duration_ms}ms` : "N/A"}
-                </div>
-
-                {step.error_message ? (
-                  <div className="error" style={{ marginTop: 8 }}>
-                    {step.error_message}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </Section>
   );
 }
