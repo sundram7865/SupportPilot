@@ -68,11 +68,19 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
     return latestAgentRun?.steps || [];
   }, [latestAgentRun]);
 
+  const pendingApprovals = approvals.filter(
+    (approval) => approval.status === "PENDING"
+  ).length;
+
+  const blockedTools = tools.filter(
+    (tool) => tool.status === "BLOCKED_APPROVAL_REQUIRED"
+  ).length;
+
+  const sentReplies = drafts.filter((draft) => draft.status === "SENT").length;
+
   const loadAll = useCallback(
     async (preferredRunId?: string | null) => {
-      if (!tokenGetter) {
-        return;
-      }
+      if (!tokenGetter) return;
 
       const [
         ticketData,
@@ -233,10 +241,22 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
             ← Dashboard
           </Link>
 
-          <div style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
             <Badge tone={sseStatus === "connected" ? "green" : "yellow"}>
               Realtime: {sseStatus}
             </Badge>
+
+            {pendingApprovals > 0 ? (
+              <Badge tone="yellow">{pendingApprovals} approvals</Badge>
+            ) : null}
+
+            {blockedTools > 0 ? (
+              <Badge tone="red">{blockedTools} blocked tools</Badge>
+            ) : null}
+
+            {sentReplies > 0 ? (
+              <Badge tone="green">{sentReplies} replies sent</Badge>
+            ) : null}
           </div>
 
           <div style={{ marginTop: 10 }}>
@@ -252,9 +272,36 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
       }
     >
       <ErrorBanner message={error} />
-      {working ? <div className="success">{working}</div> : null}
+
+      {working ? (
+        <div className="success" style={{ marginBottom: 16 }}>
+          {working}
+        </div>
+      ) : null}
 
       <TicketSummary ticket={ticket} />
+
+      <div className="grid grid-4" style={{ marginTop: 16 }}>
+        <div className="stat-card">
+          <div className="muted">Agent runs</div>
+          <div className="stat-value">{agentRuns.length}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="muted">Tool executions</div>
+          <div className="stat-value">{tools.length}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="muted">Pending approvals</div>
+          <div className="stat-value">{pendingApprovals}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="muted">Reply drafts</div>
+          <div className="stat-value">{drafts.length}</div>
+        </div>
+      </div>
 
       <div className="grid grid-main" style={{ marginTop: 16 }}>
         <div className="grid">
@@ -375,9 +422,8 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
           />
 
           <ToolExecutionPanel
-            
             tools={tools}
-  approvals={approvals}
+            approvals={approvals}
             onRequestApproval={(executionId) =>
               runAction("Requesting approval...", async () => {
                 await apiFetch(`/approvals/tool-executions/${executionId}/request`, {
