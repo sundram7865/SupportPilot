@@ -3,6 +3,7 @@
 import { UserButton, useAuth, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 
 import { OrgSwitcher } from "@/components/layout/OrgSwitcher";
 import { bootstrapAuth } from "@/lib/api";
@@ -16,8 +17,8 @@ export function AppShell({
 }: {
   title: string;
   subtitle?: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
+  right?: ReactNode;
+  children: ReactNode;
 }) {
   const { getToken, isSignedIn } = useAuth();
   const { user } = useUser();
@@ -27,8 +28,15 @@ export function AppShell({
 
   useEffect(() => {
     async function run() {
+      if (!isSignedIn) {
+        setMe(null);
+        setOrgId(null);
+        return;
+      }
+
       try {
-        const boot = await bootstrapAuth(isSignedIn ? getToken : undefined);
+        const boot = await bootstrapAuth(getToken);
+
         setMe(boot.me);
         setOrgId(boot.orgId);
       } catch {
@@ -53,15 +61,22 @@ export function AppShell({
           <Link className="nav-link" href="/approvals">
             Approval Inbox
           </Link>
+
+          <Link className="nav-link" href="/audit-logs">
+            Audit Logs
+          </Link>
+
           <Link className="nav-link" href="/settings/organization">
             Organization Settings
-        </Link>
-        <Link className="nav-link" href="/settings/integrations">
-          Integration Settings
-        </Link>
-        <Link className="nav-link" href="/settings/knowledge">
-         Knowledge Base
-        </Link>
+          </Link>
+
+          <Link className="nav-link" href="/settings/integrations">
+            Integration Settings
+          </Link>
+
+          <Link className="nav-link" href="/settings/knowledge">
+            Knowledge Base
+          </Link>
         </nav>
 
         <div style={{ marginTop: 24 }}>
