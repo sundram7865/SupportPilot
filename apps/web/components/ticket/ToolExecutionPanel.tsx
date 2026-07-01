@@ -17,6 +17,13 @@ function hasOutput(tool: ToolExecution) {
   return tool.output_json && Object.keys(tool.output_json).length > 0;
 }
 
+function approvalTone(status: string): "green" | "red" | "yellow" | "blue" | "default" {
+  if (status === "APPROVED") return "green";
+  if (status === "REJECTED") return "red";
+  if (status === "PENDING" || status === "REQUIRED") return "yellow";
+  return "default";
+}
+
 export function ToolExecutionPanel({
   tools,
   approvals,
@@ -39,56 +46,69 @@ export function ToolExecutionPanel({
 
           return (
             <div key={tool.id} className="list-item">
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <strong>{tool.tool_name}</strong>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <div>
+                  <strong>{tool.tool_name}</strong>
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    Risk: {tool.risk_level}
+                  </div>
+                </div>
+
                 <Badge tone={statusTone(tool.status) as any}>{tool.status}</Badge>
               </div>
 
-              <div className="muted" style={{ marginTop: 6 }}>
-                Risk: {tool.risk_level} · approval: {tool.approval_status}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                <Badge tone={approvalTone(tool.approval_status)}>
+                  Approval: {tool.approval_status}
+                </Badge>
+
+                {approval ? (
+                  <Badge tone={approvalTone(approval.status)}>
+                    Request: {approval.status}
+                  </Badge>
+                ) : null}
               </div>
 
               {approval ? (
                 <div className="success" style={{ marginTop: 10 }}>
-                  Approval request exists:{" "}
-                  <strong>{approval.status}</strong>
+                  Approval request exists for this execution.
                 </div>
               ) : null}
 
-              {approval ? (
-                <div style={{ marginTop: 10 }}>
+              <div className="btn-row" style={{ marginTop: 10 }}>
+                {approval ? (
                   <Link href="/approvals" className="btn btn-secondary">
                     Open Approval Inbox
                   </Link>
-                </div>
-              ) : null}
+                ) : null}
 
-              {canRequestApproval ? (
-                <button
-                  className="btn"
-                  style={{ marginTop: 10 }}
-                  onClick={() => onRequestApproval(tool.id)}
-                >
-                  Request Approval
-                </button>
-              ) : null}
+                {canRequestApproval ? (
+                  <button className="btn" onClick={() => onRequestApproval(tool.id)}>
+                    Request Approval
+                  </button>
+                ) : null}
+              </div>
 
               {tool.input_args ? (
-                <div style={{ marginTop: 12 }}>
-                  <div className="muted">Input Args</div>
-                  <pre className="code">
+                <details style={{ marginTop: 12 }}>
+                  <summary className="muted" style={{ cursor: "pointer" }}>
+                    Input Args
+                  </summary>
+                  <pre className="code" style={{ marginTop: 10 }}>
                     {JSON.stringify(tool.input_args, null, 2)}
                   </pre>
-                </div>
+                </details>
               ) : null}
 
               {hasOutput(tool) ? (
-                <div style={{ marginTop: 12 }}>
-                  <div className="muted">Output</div>
-                  <pre className="code">
+                <details style={{ marginTop: 12 }}>
+                  <summary className="muted" style={{ cursor: "pointer" }}>
+                    Tool Output
+                  </summary>
+                  <pre className="code" style={{ marginTop: 10 }}>
                     {JSON.stringify(tool.output_json, null, 2)}
                   </pre>
-                </div>
+                </details>
               ) : null}
 
               {tool.error_message ? (
@@ -101,7 +121,7 @@ export function ToolExecutionPanel({
         })}
 
         {tools.length === 0 ? (
-          <EmptyState message="No tool executions yet." />
+          <EmptyState message="No tool executions yet. Execute agent tools or run manual tool tests." />
         ) : null}
       </div>
     </Section>
