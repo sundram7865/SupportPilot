@@ -19,30 +19,33 @@ export function KnowledgeSearchPanel({
   async function search(event: React.FormEvent) {
     event.preventDefault();
 
-    if (!getToken) return;
+    if (!getToken) {
+      setMessage("Authentication is not ready.");
+      return;
+    }
 
     setSearching(true);
     setMessage(null);
 
     try {
       const response = await apiFetch<{
-  query: string;
-  results: KnowledgeSearchResult[];
-}>("/knowledge/search", {
-  method: "POST",
-  getToken,
-  body: JSON.stringify({
-    query,
-    limit,
-  }),
-});
+        query: string;
+        results: KnowledgeSearchResult[];
+      }>("/knowledge/search", {
+        method: "POST",
+        getToken,
+        body: JSON.stringify({
+          query,
+          limit,
+        }),
+      });
 
-setResults(response.results || []);
-setMessage(
-  !response.results || response.results.length === 0
-    ? "No matching knowledge found."
-    : null
-);
+      const searchResults = response.results || [];
+
+      setResults(searchResults);
+      setMessage(
+        searchResults.length === 0 ? "No matching knowledge found." : null
+      );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Search failed.");
     } finally {
@@ -88,13 +91,14 @@ setMessage(
       {results.length > 0 ? (
         <div className="stack">
           {results.map((result, index) => (
-            <div key={`${result.chunk_id || result.document_id || index}`} className="card">
+            <div
+              key={`${result.chunk_id || result.document_id || index}`}
+              className="card"
+            >
               <div className="muted" style={{ marginBottom: 8 }}>
-                {result.title || result.document_title || "Knowledge Result"}{" "}
-                {result.score !== undefined ? `• score ${result.score}` : ""}
-                {result.similarity !== undefined
-                  ? `• similarity ${result.similarity}`
-                  : ""}
+                {result.document_title || "Knowledge Result"} •{" "}
+                {result.document_type} • chunk {result.chunk_index} • score{" "}
+                {result.score.toFixed(4)}
               </div>
 
               <p style={{ whiteSpace: "pre-wrap" }}>{result.content}</p>
