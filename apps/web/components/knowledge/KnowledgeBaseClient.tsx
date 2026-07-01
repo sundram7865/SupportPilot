@@ -101,7 +101,7 @@ setDocuments(response.items || []);
       {error ? <ErrorBanner message={error} /> : null}
 
       {loading ? (
-        <LoadingState label="Loading knowledge base..." />
+        <LoadingState message="Loading knowledge base..." />
       ) : (
         <div className="stack">
           <Section title="Create Knowledge Document">

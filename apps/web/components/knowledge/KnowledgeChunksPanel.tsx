@@ -15,7 +15,7 @@ export function KnowledgeChunksPanel({
   }
 
   if (loading) {
-    return <LoadingState label="Loading chunks..." />;
+    return <LoadingState message="Loading chunks..." />;
   }
 
   if (chunks.length === 0) {

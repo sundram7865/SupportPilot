@@ -82,7 +82,7 @@ export function OrganizationSettingsClient() {
       {error ? <ErrorBanner message={error} /> : null}
 
       {loading ? (
-        <LoadingState label="Loading organization settings..." />
+        <LoadingState message="Loading organization settings..." />
       ) : (
         <div className="stack">
           <Section title="Organization Profile">
