@@ -23,6 +23,7 @@ from app.modules.tools.models import ToolExecution
 from app.modules.tools.registry import get_tool_definition
 from app.modules.tools.urbankart_tools import (
     execute_urbankart_get_order_context,
+    execute_urbankart_request_replacement,
     execute_urbankart_request_refund,
 )
 
@@ -350,6 +351,15 @@ async def execute_tool(
 
         elif tool_name == ToolName.URBANKART_REQUEST_REFUND.value:
             output = await execute_urbankart_request_refund(
+                db=db,
+                organization=organization,
+                args=args,
+                support_ticket_id=ticket_id,
+                idempotency_key=idempotency_key or str(execution.id),
+            )
+
+        elif tool_name == ToolName.URBANKART_REQUEST_REPLACEMENT.value:
+            output = await execute_urbankart_request_replacement(
                 db=db,
                 organization=organization,
                 args=args,
@@ -731,6 +741,15 @@ async def execute_approved_tool_execution(
     try:
         if execution.tool_name == ToolName.URBANKART_REQUEST_REFUND.value:
             output = await execute_urbankart_request_refund(
+                db=db,
+                organization=organization,
+                args=execution.input_args or {},
+                support_ticket_id=execution.ticket_id,
+                idempotency_key=execution.idempotency_key or str(execution.id),
+            )
+
+        elif execution.tool_name == ToolName.URBANKART_REQUEST_REPLACEMENT.value:
+            output = await execute_urbankart_request_replacement(
                 db=db,
                 organization=organization,
                 args=execution.input_args or {},

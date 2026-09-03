@@ -1,34 +1,4 @@
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: supportpilot-postgres
-    environment:
-      POSTGRES_USER: supportpilot
-      POSTGRES_PASSWORD: supportpilot
-      POSTGRES_DB: supportpilot
-    ports:
-      - "5432:5432"
-    volumes:
-      - supportpilot_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U supportpilot -d supportpilot"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    container_name: supportpilot-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - supportpilot_redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   urbankart-mock-api:
     build:
       context: ./apps/urbankart-mock-api
@@ -41,21 +11,32 @@ services:
     volumes:
       - ./apps/urbankart-mock-api:/app
 
+  redis:
+    image: redis:7-alpine
+    container_name: supportpilot-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build:
       context: ./apps/api
     container_name: supportpilot-api
     env_file:
       - .env
+    environment:
+      URBANKART_BASE_URL: http://urbankart-mock-api:8001
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       urbankart-mock-api:
         condition: service_started
+      redis:
+        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./apps/api:/app
@@ -65,35 +46,3 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-  worker:
-    build:
-      context: ./apps/api
-    container_name: supportpilot-worker
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    command: celery -A app.worker.celery_app.celery_app worker --loglevel=info
-    volumes:
-      - ./apps/api:/app
-
-  celery-beat:
-    build:
-      context: ./apps/api
-    container_name: supportpilot-celery-beat
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    command: celery -A app.worker.celery_app.celery_app beat --loglevel=info
-    volumes:
-      - ./apps/api:/app
-volumes:
-  supportpilot_postgres_data:
-  supportpilot_redis_data:

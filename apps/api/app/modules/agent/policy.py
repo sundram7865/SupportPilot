@@ -81,6 +81,34 @@ def _has_approval_tool(planned_tools: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _approval_tools_are_resolved(state: dict[str, Any]) -> bool:
+    """
+    True when every planned tool that required approval has already been
+    decided on and (if approved) executed. Prevents decision_node from
+    re-flagging "needs approval" for a tool a human has already acted on.
+    """
+    planned_tools = state.get("planned_tools") or []
+    approval_tool_ids = {
+        tool.get("tool_execution_id")
+        for tool in planned_tools
+        if isinstance(tool, dict) and tool.get("requires_approval") and tool.get("tool_execution_id")
+    }
+
+    if not approval_tool_ids:
+        return True
+
+    if state.get("approval_decision") != "approved":
+        return False
+
+    executed_ids = {
+        result.get("tool_execution_id")
+        for result in (state.get("tool_execution_results") or [])
+        if isinstance(result, dict)
+    }
+
+    return approval_tool_ids.issubset(executed_ids)
+
+
 def _resolve_policy_category(state: dict[str, Any]) -> str:
     ticket = state.get("ticket") or {}
 
@@ -112,6 +140,8 @@ def apply_agent_policy(state: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         confidence = 0.0
 
+    approval_already_resolved = _approval_tools_are_resolved(state)
+
     if _has_legal_keywords(ticket) or category == "LEGAL_RISK":
         return {
             "decision": AgentDecision.ESCALATE_TO_MANAGER.value,
@@ -139,11 +169,20 @@ def apply_agent_policy(state: dict[str, Any]) -> dict[str, Any]:
             "policy_blocked_auto_reply": True,
         }
 
-    if _has_approval_tool(planned_tools):
+    if _has_approval_tool(planned_tools) and not approval_already_resolved:
         return {
             "decision": AgentDecision.NEEDS_HUMAN_APPROVAL.value,
             "policy_reasons": [
                 "At least one planned tool requires human approval.",
+            ],
+            "policy_blocked_auto_reply": True,
+        }
+
+    if _has_approval_tool(planned_tools) and approval_already_resolved:
+        return {
+            "decision": AgentDecision.NEEDS_HUMAN_APPROVAL.value,
+            "policy_reasons": [
+                "Tool execution was approved and completed; the customer reply still requires human sign-off.",
             ],
             "policy_blocked_auto_reply": True,
         }

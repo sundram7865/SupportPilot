@@ -24,6 +24,12 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         requires_approval=True,
         description="Request refund in UrbanKart. Requires human approval.",
     ),
+    ToolName.URBANKART_REQUEST_REPLACEMENT.value: ToolDefinition(
+        name=ToolName.URBANKART_REQUEST_REPLACEMENT,
+        risk_level=ToolRiskLevel.HIGH_RISK_WRITE,
+        requires_approval=True,
+        description="Request replacement in UrbanKart. Requires human approval.",
+    ),
 }
 
 

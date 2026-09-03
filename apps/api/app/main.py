@@ -11,6 +11,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.external.router import router as external_router
 from app.modules.health.router import router as health_router
 from app.modules.integrations.router import router as integrations_router
+from app.modules.internal.router import router as internal_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.public.router import router as public_router
@@ -19,6 +20,7 @@ from app.modules.replies.router import router as replies_router
 from app.modules.tickets.router import router as tickets_router
 from app.modules.tools.router import router as tools_router
 from app.core.error_handlers import register_error_handlers
+from app.modules.knowledge.evaluation.evaluation_router import evaluation_router
 
 configure_logging()
 
@@ -31,8 +33,8 @@ app = FastAPI(
     docs_url="/docs" if not settings.is_production else None,
     redoc_url="/redoc" if not settings.is_production else None,
 )
-register_error_handlers(app)
-app.middleware("http")(security_headers_middleware)
+
+# ⚠️ CORS MUST BE FIRST - before any other middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -45,13 +47,21 @@ app.add_middleware(
         "x-dev-user-id",
         "x-dev-email",
         "x-dev-name",
+        "Accept",
+        "Origin",
     ],
 )
+
+# Other middleware AFTER CORS
+app.middleware("http")(security_headers_middleware)
+
+register_error_handlers(app)
 
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(organizations_router)
 app.include_router(integrations_router)
+app.include_router(internal_router)
 app.include_router(tickets_router)
 app.include_router(knowledge_router)
 app.include_router(agent_router)
@@ -63,6 +73,7 @@ app.include_router(public_router)
 app.include_router(external_router)
 app.include_router(audit_router)
 app.include_router(analytics_router)
+app.include_router(evaluation_router)
 
 
 @app.get("/")

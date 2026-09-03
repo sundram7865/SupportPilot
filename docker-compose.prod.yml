@@ -5,6 +5,8 @@ services:
     container_name: supportpilot-api-prod
     env_file:
       - .env
+    environment:
+      URBANKART_BASE_URL: http://urbankart-mock-api:8001
     ports:
       - "8000:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000

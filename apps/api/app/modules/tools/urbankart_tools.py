@@ -100,3 +100,31 @@ async def execute_urbankart_request_refund(
         support_ticket_id=str(support_ticket_id) if support_ticket_id else "manual-tool-execution",
         idempotency_key=idempotency_key,
     )
+
+
+async def execute_urbankart_request_replacement(
+    db: Session,
+    organization: Organization,
+    args: dict,
+    support_ticket_id: UUID | None,
+    idempotency_key: str,
+) -> dict:
+    order_id = args.get("order_id")
+    reason = args.get("reason") or "Replacement requested from SupportPilot."
+    evidence_urls = args.get("evidence_urls") or []
+
+    if not order_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="order_id is required.",
+        )
+
+    client = get_urbankart_client_for_org(db, organization)
+
+    return await client.request_replacement(
+        order_id=order_id,
+        reason=reason,
+        support_ticket_id=str(support_ticket_id) if support_ticket_id else "manual-tool-execution",
+        idempotency_key=idempotency_key,
+        evidence_urls=evidence_urls,
+    )

@@ -27,3 +27,7 @@ class AgentState(TypedDict, total=False):
     classification_confidence: float
     policy_reasons: list[str]
     policy_blocked_auto_reply: bool
+    approval_decision: str | None            # "approved" or "rejected"
+    approval_reason: str | None
+    pending_approval: dict | None            # payload passed to interrupt()
+    tool_execution_results: list[dict]       # results from executed tools

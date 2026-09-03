@@ -156,3 +156,24 @@ class UrbanKartClient:
                 "idempotency_key": idempotency_key,
             },
         )
+
+    async def request_replacement(
+        self,
+        order_id: str,
+        reason: str,
+        support_ticket_id: str,
+        idempotency_key: str,
+        evidence_urls: list[str] | None = None,
+    ) -> dict:
+        return await self._request(
+            "POST",
+            "/api/support/replacements/request",
+            {
+                "order_id": order_id,
+                "reason": reason,
+                "requested_by": "supportpilot",
+                "support_ticket_id": support_ticket_id,
+                "evidence_urls": evidence_urls or [],
+                "idempotency_key": idempotency_key,
+            },
+        )

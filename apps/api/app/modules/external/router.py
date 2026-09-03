@@ -23,6 +23,7 @@ from app.modules.integrations.models import ExternalApiLog, IntegrationConnectio
 from app.modules.organizations.models import Organization
 from app.modules.tickets.models import Ticket, TicketMessage, TicketTimelineEvent
 from app.modules.tickets.service import generate_ticket_number
+from app.modules.tickets.sla import initialize_ticket_sla
 
 router = APIRouter(prefix="/external", tags=["External API"])
 
@@ -168,6 +169,7 @@ def create_external_ticket(
             metadata_json=metadata_json,
         )
 
+        initialize_ticket_sla(ticket)
         db.add(ticket)
         db.flush()
 

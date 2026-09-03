@@ -150,6 +150,7 @@ class AgentRunStatus(StrEnum):
     STARTED = "STARTED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    WAITING_FOR_APPROVAL = "WAITING_FOR_APPROVAL"   # NEW
 
 
 class AgentStepStatus(StrEnum):
@@ -198,6 +199,7 @@ class ToolApprovalStatus(StrEnum):
 class ToolName(StrEnum):
     URBANKART_GET_ORDER_CONTEXT = "urbankart_get_order_context"
     URBANKART_REQUEST_REFUND = "urbankart_request_refund"
+    URBANKART_REQUEST_REPLACEMENT = "urbankart_request_replacement"
     
 class ApprovalRequestStatus(StrEnum):
     PENDING = "PENDING"

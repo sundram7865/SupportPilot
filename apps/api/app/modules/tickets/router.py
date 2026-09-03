@@ -13,11 +13,12 @@ from app.common.enums import AuditAction, AuditResourceType
 from app.modules.audit.service import create_audit_log
 from app.db.session import get_db
 from app.modules.auth.dependencies import (
+    get_current_membership,
     get_current_organization,
     get_or_create_current_user,
     require_permission,
 )
-from app.modules.auth.permissions import Permission
+from app.modules.auth.permissions import Permission, role_has_permission
 from app.modules.organizations.models import Organization, OrganizationMember
 from app.modules.tickets.models import (
     Ticket,
@@ -413,12 +414,18 @@ def update_ticket(
     ticket_id: UUID,
     payload: UpdateTicketRequest,
     organization: Organization = Depends(get_current_organization),
+    current_membership: OrganizationMember = Depends(get_current_membership),
     current_user: User = Depends(get_or_create_current_user),
     db: Session = Depends(get_db),
 ):
     ticket = get_ticket_or_404(db, organization.id, ticket_id)
 
     if payload.assigned_to_user_id is not None:
+        if not role_has_permission(current_membership.role, Permission.TICKET_ASSIGN):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Missing required permission to assign tickets.",
+            )
         ensure_assignee_is_org_member(db, organization.id, payload.assigned_to_user_id)
 
     if payload.subject is not None:

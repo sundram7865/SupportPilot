@@ -1,20 +1,70 @@
+# Web Framework
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+python-multipart==0.0.18
+
+# Data Validation & Settings
 pydantic==2.10.4
 pydantic-settings==2.7.1
+
+# Database
 SQLAlchemy==2.0.36
 psycopg[binary]==3.2.3
 alembic==1.14.0
+pgvector==0.3.6
+
+# Caching & Message Queue
 redis==5.2.1
+celery==5.4.0
+
+# HTTP & Async
 httpx==0.28.1
+
+# Environment & Configuration
 python-dotenv==1.0.1
+
+# Authentication & Security
 PyJWT[crypto]==2.10.1
+cryptography==44.0.0
+
+# Utilities
 python-slugify==8.0.4
 email-validator==2.2.0
-cryptography==44.0.0
-pgvector==0.3.6
-langgraph==0.2.60
-langchain-core==0.3.28
-google-generativeai==0.8.3
-celery==5.4.0
+
+# ============================================================================
+# AI & Embeddings
+# ============================================================================
+google-generativeai==0.7.2
+langgraph==0.2.76
+langgraph-checkpoint-postgres==2.0.20   # NEW: for persistent LangGraph checkpoints in PostgreSQL
+langchain-core==0.2.43
+langchain==0.2.17
+langchain-google-genai==1.0.10
+langchain-community==0.2.19
+langchain-openai==0.1.25
+
+# ============================================================================
+# RAG Evaluation
+# ============================================================================
+ragas==0.1.14
+datasets==2.20.0
+pandas==2.2.2
+
+# ============================================================================
+# Cloudinary & File Processing
+# ============================================================================
+cloudinary==1.41.0
+PyPDF2==3.0.1
+python-docx==1.1.2
+markdown==3.7.0
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# Retry & Resilience
+tenacity==8.5.0
+
+# Testing
 pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+nest-asyncio==1.6.0

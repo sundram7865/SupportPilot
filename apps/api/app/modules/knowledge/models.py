@@ -13,7 +13,6 @@ from app.common.enums import (
 )
 from app.db.base import Base
 
-
 class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
 
@@ -89,7 +88,37 @@ class KnowledgeDocument(Base):
         DateTime(timezone=True),
         nullable=True,
     )
-
+    cloudinary_public_id: Mapped[str | None] = mapped_column(
+        String(500), 
+        nullable=True,
+        index=True,
+    )
+    
+    cloudinary_url: Mapped[str | None] = mapped_column(
+        String(2000), 
+        nullable=True,
+    )
+    
+    file_name: Mapped[str | None] = mapped_column(
+        String(500), 
+        nullable=True,
+    )
+    
+    file_size: Mapped[int | None] = mapped_column(
+        Integer, 
+        nullable=True,
+    )
+    
+    file_type: Mapped[str | None] = mapped_column(
+        String(100), 
+        nullable=True,
+    )
+    
+    content_extraction_status: Mapped[str | None] = mapped_column(
+        String(50),
+        default="pending",  # pending, extracted, failed
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

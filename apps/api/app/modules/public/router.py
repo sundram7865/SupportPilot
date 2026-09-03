@@ -20,6 +20,7 @@ from app.modules.public.schemas import (
 from app.core.rate_limit import public_read_rate_limit, public_write_rate_limit
 from app.modules.tickets.models import Ticket, TicketMessage, TicketTimelineEvent
 from app.modules.tickets.service import generate_ticket_number
+from app.modules.tickets.sla import initialize_ticket_sla
 
 router = APIRouter(prefix="/public", tags=["Public Intake"])
 
@@ -103,6 +104,7 @@ def create_public_ticket(
         metadata_json=metadata_json,
     )
 
+    initialize_ticket_sla(ticket)
     db.add(ticket)
     db.flush()
 

@@ -17,14 +17,13 @@ def get_redis_client(settings: Settings) -> redis.Redis:
 
 
 def get_client_identifier(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
+    client_ip = request.client.host if request.client else "unknown"
+    settings = get_settings()
 
-    if forwarded_for:
-        client_ip = forwarded_for.split(",")[0].strip()
-    elif request.client:
-        client_ip = request.client.host
-    else:
-        client_ip = "unknown"
+    if client_ip in settings.trusted_proxy_ips_list:
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
 
     user_agent = request.headers.get("user-agent", "unknown")
 

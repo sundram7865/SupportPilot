@@ -20,6 +20,7 @@ from app.modules.realtime.publisher import publish_timeline_event_after_commit
 from app.modules.tickets.models import TicketTimelineEvent
 from app.modules.tools.models import ToolExecution
 from app.modules.tools.service import execute_approved_tool_execution
+from app.modules.agent.service import resume_agent_after_approval
 
 
 def add_approval_timeline_event(
@@ -251,6 +252,50 @@ async def approve_request(
     db.refresh(approval)
     publish_if_exists(db, organization.id, approval.ticket_id, timeline_event)
 
+    # If this approval is linked to an agent run, resume the graph instead of
+    # executing tools directly. The approval decision itself is already
+    # committed above and reflects what the human actually did — if resuming
+    # the graph fails, that failure belongs to the AgentRun (which
+    # resume_agent_after_approval marks FAILED and commits on its own), not
+    # to the approval decision. We surface it clearly instead of letting a
+    # bare exception propagate to the API layer.
+    if approval.agent_run_id:
+        # Mark the underlying tool execution as approved BEFORE resuming the
+        # graph. execute_tools_node -> execute_approved_tool_execution
+        # requires approval_status == APPROVED and will reject otherwise.
+        # The manual (non-agent-run) branch below already does this; the
+        # agent-run branch previously did not, since the old mock
+        # execute_tools_node set this flag itself instead of calling the
+        # real executor.
+        if approval.tool_execution_id:
+            execution = get_tool_execution_or_404(
+                db=db,
+                organization_id=organization.id,
+                execution_id=approval.tool_execution_id,
+            )
+            execution.approval_status = ToolApprovalStatus.APPROVED.value
+            db.commit()
+
+        try:
+            resume_agent_after_approval(
+                db=db,
+                agent_run_id=approval.agent_run_id,
+                approved=True,
+                reason=decision_reason,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Approval was recorded, but resuming the agent run failed: "
+                    f"{exc}"
+                ),
+            ) from exc
+        # The graph will update the AgentRun, execute tools, and finalize.
+        # No further direct execution is needed here.
+        return approval
+
+    # For manual tool executions (not part of an agent run), keep the original direct execution
     if approval.request_type == ApprovalRequestType.TOOL_EXECUTION.value:
         if not approval.tool_execution_id:
             raise HTTPException(
@@ -265,7 +310,7 @@ async def approve_request(
         )
 
         execution.approval_status = ToolApprovalStatus.APPROVED.value
-        
+
         db.commit()
         db.refresh(execution)
 
@@ -320,6 +365,12 @@ def reject_request(
             execution_id=approval.tool_execution_id,
         )
         execution.approval_status = ToolApprovalStatus.REJECTED.value
+        # ToolExecutionStatus has no REJECTED/CANCELLED member; SKIPPED is the
+        # correct terminal state here since the tool was never executed.
+        # Without this, execution.status stays BLOCKED_APPROVAL_REQUIRED
+        # forever, even though approval_status already says REJECTED.
+        execution.status = ToolExecutionStatus.SKIPPED.value
+        execution.completed_at = datetime.now(timezone.utc)
 
     timeline_event = add_approval_timeline_event(
         db=db,
@@ -350,5 +401,25 @@ def reject_request(
     db.commit()
     db.refresh(approval)
     publish_if_exists(db, organization_id, approval.ticket_id, timeline_event)
+
+    # If linked to an agent run, resume the graph with rejection.
+    # Same reasoning as approve_request: the rejection decision is already
+    # committed and correct regardless of whether the graph resume succeeds.
+    if approval.agent_run_id:
+        try:
+            resume_agent_after_approval(
+                db=db,
+                agent_run_id=approval.agent_run_id,
+                approved=False,
+                reason=decision_reason,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Rejection was recorded, but resuming the agent run failed: "
+                    f"{exc}"
+                ),
+            ) from exc
 
     return approval

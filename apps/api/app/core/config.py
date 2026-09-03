@@ -16,12 +16,13 @@ class Settings(BaseSettings):
     urbankart_base_url: str = "http://localhost:8001"
     urbankart_api_key: str = "dev_urbankart_key"
 
-    dev_auth_enabled: bool = True
+    dev_auth_enabled: bool = False
 
     clerk_issuer: str | None = None
     clerk_jwks_url: str | None = None
 
     integration_secret_key: str
+    internal_job_secret: str = "dev-internal-job-secret"
 
     ai_provider: str = "mock"
     gemini_api_key: str | None = None
@@ -39,6 +40,7 @@ class Settings(BaseSettings):
     public_read_rate_limit_per_minute: int = 60
     public_write_rate_limit_per_minute: int = 10
     external_api_rate_limit_per_minute: int = 30
+    trusted_proxy_ips: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -57,6 +59,14 @@ class Settings(BaseSettings):
             for origin in self.cors_allowed_origins.split(",")
             if origin.strip()
         ]
+
+    @property
+    def trusted_proxy_ips_list(self) -> set[str]:
+        return {
+            address.strip()
+            for address in self.trusted_proxy_ips.split(",")
+            if address.strip()
+        }
 
     @model_validator(mode="after")
     def validate_security_settings(self):
@@ -90,6 +100,16 @@ class Settings(BaseSettings):
             }:
                 raise ValueError(
                     "INTEGRATION_SECRET_KEY must be strong in production."
+                )
+            if self.internal_job_secret in {
+                "dev",
+                "changeme",
+                "change-me",
+                "secret",
+                "dev-internal-job-secret",
+            }:
+                raise ValueError(
+                    "INTERNAL_JOB_SECRET must be strong in production."
                 )
 
             if not self.cors_origins_list:
