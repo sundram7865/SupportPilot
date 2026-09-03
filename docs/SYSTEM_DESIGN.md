@@ -32,49 +32,72 @@ Celery Beat      owns optional periodic scheduling
 
 Layer direction:
 
-```txt
-Presentation
-→ API routers and schemas
-→ Auth, organization, and permission dependencies
-→ Domain services
-→ Models and transactions
-→ External clients
+```mermaid
+flowchart TD
+	Presentation[Presentation layer]
+	API[API routers and schemas]
+	Auth[Auth organization and permission dependencies]
+	Domain[Domain services]
+	Persistence[Models and transactions]
+	External[External clients]
+
+	Presentation --> API
+	API --> Auth
+	Auth --> Domain
+	Domain --> Persistence
+	Domain --> External
 ```
 
 ## 3. Main Request Flows
 
 Authenticated:
 
-```txt
-Clerk token
-→ local user resolution
-→ x-organization-id parsing
-→ active membership
-→ permission
-→ scoped resource lookup
-→ domain transaction
-→ timeline and audit records
-→ response
+```mermaid
+flowchart TD
+	Token[Clerk token] --> User[Local user resolution]
+	User --> OrgHeader[Organization header parsing]
+	OrgHeader --> Membership{Active membership?}
+	Membership -->|No| Denied[403 denied]
+	Membership -->|Yes| Permission{Permission granted?}
+	Permission -->|No| Denied
+	Permission -->|Yes| Resource[Scoped resource lookup]
+	Resource --> Transaction[Domain transaction]
+	Transaction --> Trace[Timeline and audit records]
+	Trace --> Response[Response]
 ```
 
 Public intake:
 
-```txt
-Public form
-→ rate limit
-→ organization slug
-→ Ticket, TicketMessage, TimelineEvent, SLA deadlines
+```mermaid
+flowchart TD
+	Form[Public support form] --> Limit[Public rate limit]
+	Limit --> Slug[Organization slug lookup]
+	Slug --> Ticket[Ticket]
+	Slug --> Message[Customer message]
+	Slug --> Event[Timeline event]
+	Slug --> SLA[SLA deadlines]
+	Ticket --> Commit[Single database transaction]
+	Message --> Commit
+	Event --> Commit
+	SLA --> Commit
 ```
 
 External intake:
 
-```txt
-Merchant request
-→ rate limit
-→ organization slug
-→ integration and encrypted key
-→ Ticket, TicketMessage, TimelineEvent, SLA deadlines
-→ ExternalApiLog
+```mermaid
+flowchart TD
+	Request[Merchant request] --> Limit[External rate limit]
+	Limit --> Slug[Organization slug lookup]
+	Slug --> Key[API key verification]
+	Key --> Ticket[Ticket]
+	Key --> Message[Customer message]
+	Key --> Event[Timeline event]
+	Key --> SLA[SLA deadlines]
+	Ticket --> Commit[Single database transaction]
+	Message --> Commit
+	Event --> Commit
+	SLA --> Commit
+	Commit --> Log[External API log]
 ```
 
 ## 4. Database Platform and Migration Chain
@@ -87,23 +110,23 @@ Alembic
 pgvector vector(384)
 ```
 
-Migration chain:
+Migration graph:
 
-```txt
-0001 pgvector
-→ 0002 auth organizations RBAC
-→ 0003 integrations logs
-→ 0004 tickets
-→ 0005 lifecycle
-→ 0006 knowledge
-→ 0007 agent
-→ 0008 tools
-→ 0009 approvals
-→ 0010 customer replies
-→ 0011 invitations
-→ 0012 SLA
-→ 0013 audit logs
-→ 0014 Cloudinary knowledge fields
+```mermaid
+flowchart LR
+	M1[0001 pgvector] --> M2[0002 auth organizations RBAC]
+	M2 --> M3[0003 integrations logs]
+	M3 --> M4[0004 tickets]
+	M4 --> M5[0005 lifecycle]
+	M5 --> M6[0006 knowledge]
+	M6 --> M7[0007 agent]
+	M7 --> M8[0008 tools]
+	M8 --> M9[0009 approvals]
+	M9 --> M10[0010 customer replies]
+	M10 --> M11[0011 invitations]
+	M11 --> M12[0012 SLA]
+	M12 --> M13[0013 audit logs]
+	M13 --> M14[0014 Cloudinary knowledge fields]
 ```
 
 Expected head: `0014_cloudinary_knowledge`.
@@ -497,52 +520,62 @@ Resource IDs are polymorphic by design and do not have foreign keys to every pos
 
 ## 6. Relationship and Delete Rules
 
-```txt
-Organization owned records → organizations CASCADE
-Membership user → users CASCADE
-Ticket messages, notes, events, transitions → tickets CASCADE
-Agent runs → tickets CASCADE
-Agent steps → agent runs and tickets CASCADE
-Knowledge chunks → documents CASCADE
-External logs → integration connection SET NULL
-Actor fields → users SET NULL
-Approval agent run → agent runs SET NULL
-Approval tool execution → tool executions CASCADE
-Reply draft agent run and approval → SET NULL
-Reply sent message → ticket messages SET NULL
+```mermaid
+flowchart TD
+	Organization[Organization] -->|CASCADE| TenantRecords[All organization owned records]
+	User[User] -->|CASCADE| Membership[Organization membership]
+	Ticket[Ticket] -->|CASCADE| TicketChildren[Messages notes events transitions]
+	Ticket -->|CASCADE| AgentRuns[Agent runs]
+	AgentRuns -->|CASCADE| AgentSteps[Agent run steps]
+	KnowledgeDocument[Knowledge document] -->|CASCADE| Chunks[Knowledge chunks]
+	Integration[Integration connection] -->|SET NULL| ExternalLogs[External API logs]
+	User -->|SET NULL| ActorFields[Historical actor fields]
+	AgentRuns -->|SET NULL| ApprovalAgentRun[Approval agent reference]
+	ToolExecution[Tool execution] -->|CASCADE| ApprovalTool[Approval request]
+	AgentRuns -->|SET NULL| ReplyAgentRun[Reply draft agent reference]
+	ApprovalTool -->|SET NULL| ReplyApproval[Reply draft approval reference]
+	TicketMessage[Ticket message] -->|SET NULL| SentMessage[Reply sent message reference]
 ```
 
 Explicit ORM relationships include users memberships, organization members, ticket children, document chunks, agent run steps, and inverse ticket relationships. Some foreign keys intentionally have no ORM relationship because they are used only as scoped references.
 
 ## 7. Agent Graph
 
-```txt
-load context
-→ retrieve knowledge
-→ classify
-→ detect risk
-→ plan tools
-→ approval interrupt
-→ execute approved tools
-→ draft response
-→ policy decision
-→ END
+```mermaid
+flowchart TD
+	Start((Start)) --> Load[Load context]
+	Load --> Knowledge[Retrieve organization knowledge]
+	Knowledge --> Classify[Classify category and priority]
+	Classify --> Risk[Detect risk]
+	Risk --> Plan[Plan tools]
+	Plan --> ApprovalNeeded{Approval tool planned?}
+	ApprovalNeeded -->|Yes| Interrupt[Approval interrupt]
+	Interrupt --> Decision{Human decision}
+	Decision -->|Rejected| Skip[Mark risky execution skipped]
+	Decision -->|Approved| Execute[Execute approved tools]
+	ApprovalNeeded -->|No| Draft[Draft response]
+	Execute --> Draft
+	Skip --> Draft
+	Draft --> Policy[Apply policy decision]
+	Policy --> End((End))
 ```
 
 The graph uses a PostgreSQL checkpoint thread keyed by agent run ID. Approval resumes the same graph with `Command(resume=...)`. Unknown tools cannot pass the registry. Refund and replacement executors require approval.
 
 ## 8. RAG
 
-```txt
-Document
-→ extraction
-→ chunking
-→ embedding
-→ KnowledgeChunk vector
-→ query embedding
-→ organization, ACTIVE, INGESTED filters
-→ cosine distance
-→ top context
+```mermaid
+flowchart TD
+	Source[Source document] --> Extract[Content extraction]
+	Extract --> Chunk[Chunking]
+	Chunk --> Embed[Embedding generation]
+	Embed --> Vector[KnowledgeChunk vector]
+	Query[Question or ticket context] --> QueryEmbed[Query embedding]
+	QueryEmbed --> Filters[Organization ACTIVE and INGESTED filters]
+	Vector --> Filters
+	Filters --> Distance[Cosine distance search]
+	Distance --> Context[Top context chunks]
+	Context --> Agent[Agent or evaluator]
 ```
 
 RAGAS builds records with question, answer, contexts, and ground truth. It evaluates context precision, context recall, faithfulness, and answer relevancy. It uses external model providers and is manual, synchronous, and excluded from production scheduling.
@@ -553,19 +586,22 @@ The shared `run_sla_check(db)` function is called either by Celery task `tickets
 
 Free MVP:
 
-```txt
-External cron
-→ protected API endpoint
-→ PostgreSQL SLA update
+```mermaid
+flowchart TD
+	Cron[External cron] --> Endpoint[Protected SLA endpoint]
+	Endpoint --> Session[Database session]
+	Session --> SLA[Shared SLA check]
+	SLA --> Update[PostgreSQL SLA update]
 ```
 
 Scalable deployment:
 
-```txt
-Celery Beat
-→ Redis broker
-→ Celery worker
-→ PostgreSQL SLA update
+```mermaid
+flowchart TD
+	Beat[Celery Beat] --> Broker[Redis broker]
+	Broker --> Worker[Celery worker]
+	Worker --> SLA[Shared SLA check]
+	SLA --> Update[PostgreSQL SLA update]
 ```
 
 Only one scheduler may be active for an environment.
@@ -591,17 +627,25 @@ Production startup rejects development auth, weak secrets, missing Clerk setting
 
 ## 11. Failure Handling
 
-```txt
-Invalid token → 401
-Missing organization → 400 or 403
-Inactive membership → 403
-Missing permission → 403
-Missing scoped resource → 404
-Invalid transition → 400
-Idempotency conflict → 409
-Provider failure → FAILED execution and audit history
-Rate limit → 429
-SLA database failure → rollback
+```mermaid
+flowchart TD
+	Request[Incoming request] --> Token{Token valid?}
+	Token -->|No| E401[401]
+	Token -->|Yes| Organization{Organization access?}
+	Organization -->|No| E403[400 or 403]
+	Organization -->|Yes| Permission{Permission valid?}
+	Permission -->|No| E403
+	Permission -->|Yes| Resource{Resource exists in tenant?}
+	Resource -->|No| E404[404]
+	Resource -->|Yes| Domain[Domain operation]
+	Domain --> Transition{Valid transition and idempotency?}
+	Transition -->|No transition| E400[400]
+	Transition -->|Conflict| E409[409]
+	Transition -->|Valid| Provider{Provider available?}
+	Provider -->|No| Failed[FAILED execution and audit history]
+	Provider -->|Yes| Success[Commit success]
+	Rate[Rate limit exceeded] --> E429[429]
+	SLA[SLA database failure] --> Rollback[Rollback]
 ```
 
 ## 12. Tradeoffs and Boundaries
