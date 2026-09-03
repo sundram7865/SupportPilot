@@ -4,7 +4,21 @@ export type Organization = {
   slug?: string;
   role?: string;
 };
+// Add these new types to your existing types/api.ts
 
+export type IngestKnowledgeDocumentResponse = {
+  document_id: string;
+  ingestion_status: string;
+  chunk_count: number;
+};
+
+export type DocumentDownloadUrl = {
+  download_url: string;
+  expires_in: number;
+  file_name: string;
+  file_size: number;
+  file_type: string;
+};
 export type AuthMeResponse = {
   user: {
     id: string;
@@ -264,8 +278,14 @@ export type KnowledgeDocument = {
   ingested_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  // Cloudinary fields
+  cloudinary_public_id?: string | null;
+  cloudinary_url?: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
+  file_type?: string | null;
+  content_extraction_status?: string | null;
 };
-
 export type KnowledgeChunk = {
   id: string;
   document_id: string;

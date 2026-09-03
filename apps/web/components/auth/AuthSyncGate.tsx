@@ -2,9 +2,11 @@
 
 import { useAuth, useUser } from "@clerk/nextjs";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { clearStoredOrgId, syncAuthUser } from "@/lib/api";
+import { bootstrapAuth } from "@/lib/api";
+import { useWorkspaceStore } from "@/lib/workspace-store";
 
 type SyncState = "idle" | "syncing" | "done" | "error";
 
@@ -16,8 +18,15 @@ export function AuthSyncGate({ children }: { children: React.ReactNode }) {
 
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const syncedUserRef = useRef<string | null>(null);
+  const setLoading = useWorkspaceStore((state) => state.setLoading);
+  const setWorkspace = useWorkspaceStore((state) => state.setWorkspace);
+  const setWorkspaceError = useWorkspaceStore((state) => state.setError);
+  const resetWorkspace = useWorkspaceStore((state) => state.reset);
 
   const isPublicRoute =
+    pathname.startsWith("/sign-in") ||
+    pathname.startsWith("/sign-up") ||
     pathname.startsWith("/support") ||
     pathname.startsWith("/embed") ||
     pathname.startsWith("/widget");
@@ -43,7 +52,9 @@ export function AuthSyncGate({ children }: { children: React.ReactNode }) {
       }
 
       if (!isSignedIn) {
+        syncedUserRef.current = null;
         clearStoredOrgId();
+        resetWorkspace();
 
         if (!cancelled) {
           setSyncState("done");
@@ -71,9 +82,17 @@ export function AuthSyncGate({ children }: { children: React.ReactNode }) {
       }
 
       try {
+        if (syncedUserRef.current === user.id) {
+          if (!cancelled) {
+            setSyncState("done");
+          }
+          return;
+        }
+
         if (!cancelled) {
           setError(null);
           setSyncState("syncing");
+          setLoading();
         }
 
         await syncAuthUser(getToken, {
@@ -83,12 +102,19 @@ export function AuthSyncGate({ children }: { children: React.ReactNode }) {
           avatar_url: user.imageUrl || null,
         });
 
+        const boot = await bootstrapAuth(getToken);
+        if (cancelled) return;
+
+        setWorkspace(boot.me, boot.orgId);
+        syncedUserRef.current = user.id;
+
         if (!cancelled) {
           setSyncState("done");
         }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Auth sync failed.");
+          setWorkspaceError(err instanceof Error ? err.message : "Auth sync failed.");
           setSyncState("error");
         }
       }
@@ -107,6 +133,10 @@ export function AuthSyncGate({ children }: { children: React.ReactNode }) {
     user,
     primaryEmail,
     getToken,
+    resetWorkspace,
+    setLoading,
+    setWorkspace,
+    setWorkspaceError,
   ]);
 
   // Public customer routes must never go to Clerk/auth sync.

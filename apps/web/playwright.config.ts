@@ -15,8 +15,9 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   webServer: {
-    command:
-      "cmd /c set E2E_TEST=true&& npx next dev --hostname 127.0.0.1 --port 3010",
+    command: "node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3010",
+    cwd: "d:/SuperPilot/apps/web",
+    env: { E2E_TEST: "true" },
     url: "http://127.0.0.1:3010/e2e-health",
     reuseExistingServer: false,
     timeout: 180_000,

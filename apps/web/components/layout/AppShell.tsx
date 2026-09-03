@@ -2,12 +2,10 @@
 
 import { UserButton, useAuth, useUser } from "@clerk/nextjs";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { OrgSwitcher } from "@/components/layout/OrgSwitcher";
-import { bootstrapAuth } from "@/lib/api";
-import type { AuthMeResponse } from "@/types/api";
+import { useWorkspaceStore } from "@/lib/workspace-store";
 
 export function AppShell({
   title,
@@ -20,32 +18,12 @@ export function AppShell({
   right?: ReactNode;
   children: ReactNode;
 }) {
-  const { getToken, isSignedIn } = useAuth();
+  const { isSignedIn } = useAuth();
   const { user } = useUser();
 
-  const [me, setMe] = useState<AuthMeResponse | null>(null);
-  const [orgId, setOrgId] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function run() {
-      if (!isSignedIn) {
-        setMe(null);
-        setOrgId(null);
-        return;
-      }
-
-      try {
-        const boot = await bootstrapAuth(getToken);
-
-        setMe(boot.me);
-        setOrgId(boot.orgId);
-      } catch {
-        // Page-level components show exact API errors.
-      }
-    }
-
-    run();
-  }, [getToken, isSignedIn]);
+  const me = useWorkspaceStore((state) => state.me);
+  const orgId = useWorkspaceStore((state) => state.orgId);
+  const setOrgId = useWorkspaceStore((state) => state.setOrgId);
 
   return (
     <div className="app-shell">
@@ -80,7 +58,7 @@ export function AppShell({
         </nav>
 
         <div style={{ marginTop: 24 }}>
-          <OrgSwitcher me={me} orgId={orgId} />
+          <OrgSwitcher me={me} orgId={orgId} onChanged={setOrgId} />
         </div>
 
         {isSignedIn ? (

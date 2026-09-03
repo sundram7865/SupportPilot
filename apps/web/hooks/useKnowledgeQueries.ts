@@ -26,14 +26,16 @@ type KnowledgeSearchResponse = {
 };
 
 export function useKnowledgeDocuments({
+  orgId,
   getToken,
   enabled,
 }: {
+  orgId: string | null;
   getToken?: GetToken;
   enabled: boolean;
 }) {
   return useQuery({
-    queryKey: queryKeys.knowledge.documents,
+    queryKey: queryKeys.knowledge.documents(orgId),
     enabled: enabled && Boolean(getToken),
     queryFn: async () => {
       if (!getToken) {
@@ -54,17 +56,19 @@ export function useKnowledgeDocuments({
 }
 
 export function useKnowledgeChunks({
+  orgId,
   documentId,
   getToken,
   enabled,
 }: {
+  orgId: string | null;
   documentId?: string | null;
   getToken?: GetToken;
   enabled: boolean;
 }) {
   return useQuery({
     queryKey: documentId
-      ? queryKeys.knowledge.chunks(documentId)
+      ? queryKeys.knowledge.chunks(orgId, documentId)
       : ["knowledge", "documents", "no-document", "chunks"],
     enabled: enabled && Boolean(getToken) && Boolean(documentId),
     queryFn: async () => {
@@ -84,8 +88,10 @@ export function useKnowledgeChunks({
 }
 
 export function useCreateKnowledgeDocument({
+  orgId,
   getToken,
 }: {
+  orgId: string | null;
   getToken?: GetToken;
 }) {
   const queryClient = useQueryClient();
@@ -104,15 +110,17 @@ export function useCreateKnowledgeDocument({
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.knowledge.documents,
+        queryKey: queryKeys.knowledge.documents(orgId),
       });
     },
   });
 }
 
 export function useIngestKnowledgeDocument({
+  orgId,
   getToken,
 }: {
+  orgId: string | null;
   getToken?: GetToken;
 }) {
   const queryClient = useQueryClient();
@@ -131,10 +139,10 @@ export function useIngestKnowledgeDocument({
     onSuccess: async (_data, documentId) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: queryKeys.knowledge.documents,
+          queryKey: queryKeys.knowledge.documents(orgId),
         }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.knowledge.chunks(documentId),
+          queryKey: queryKeys.knowledge.chunks(orgId, documentId),
         }),
       ]);
     },
@@ -142,8 +150,10 @@ export function useIngestKnowledgeDocument({
 }
 
 export function useDeleteKnowledgeDocument({
+  orgId,
   getToken,
 }: {
+  orgId: string | null;
   getToken?: GetToken;
 }) {
   const queryClient = useQueryClient();
@@ -161,7 +171,7 @@ export function useDeleteKnowledgeDocument({
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.knowledge.documents,
+        queryKey: queryKeys.knowledge.documents(orgId),
       });
     },
   });

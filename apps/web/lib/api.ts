@@ -195,7 +195,9 @@ export async function apiFetch<T>(
 
   const finalHeaders: Record<string, string> = {
     ...authHeaders,
-    ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+    ...(fetchOptions.body && !(fetchOptions.body instanceof FormData)
+      ? { "Content-Type": "application/json" }
+      : {}),
     ...(resolvedOrgId ? { "x-organization-id": resolvedOrgId } : {}),
     ...(headers as Record<string, string> | undefined),
   };
@@ -210,7 +212,7 @@ export async function apiFetch<T>(
 
     try {
       const data = await response.json();
-      message = data?.detail || message;
+      message = data?.error?.message || data?.detail || message;
     } catch {
       // Ignore parse errors.
     }
@@ -220,6 +222,49 @@ export async function apiFetch<T>(
 
   if (response.status === 204) {
     return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
+// ============================================================================
+// File Upload Helper - for multipart/form-data uploads
+// ============================================================================
+export async function uploadFile<T>(
+  path: string,
+  formData: FormData,
+  options: {
+    getToken?: () => Promise<string | null>;
+  } = {}
+): Promise<T> {
+  const { getToken } = options;
+
+  const authHeaders = await getAuthHeader(getToken);
+  const orgId = getStoredOrgId();
+
+  const headers: Record<string, string> = {
+    ...authHeaders,
+    ...(orgId ? { "x-organization-id": orgId } : {}),
+    // DO NOT set Content-Type - browser sets it automatically with boundary
+  };
+
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = `Upload failed with status ${response.status}`;
+
+    try {
+      const data = await response.json();
+      message = data?.error?.message || data?.detail || message;
+    } catch {
+      // Ignore parse errors.
+    }
+
+    throw new Error(message);
   }
 
   return response.json() as Promise<T>;

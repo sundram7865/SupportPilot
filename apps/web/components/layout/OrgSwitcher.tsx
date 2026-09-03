@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { clearStoredOrgId, setStoredOrgId } from "@/lib/api";
+import { useWorkspaceStore } from "@/lib/workspace-store";
 import type { AuthMeResponse } from "@/types/api";
 
 export function OrgSwitcher({
@@ -15,6 +16,7 @@ export function OrgSwitcher({
   onChanged?: (orgId: string) => void;
 }) {
   const [value, setValue] = useState(orgId || "");
+  const setWorkspaceOrgId = useWorkspaceStore((state) => state.setOrgId);
 
   useEffect(() => {
     setValue(orgId || "");
@@ -35,6 +37,7 @@ export function OrgSwitcher({
     }
 
     setStoredOrgId(nextOrgId);
+    setWorkspaceOrgId(nextOrgId);
     onChanged?.(nextOrgId);
 
     window.location.reload();

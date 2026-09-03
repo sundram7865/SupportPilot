@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentRunHistoryPanel } from "@/components/ticket/AgentRunHistoryPanel";
 import { AgentRunStepDetailPanel } from "@/components/ticket/AgentRunStepDetailPanel";
@@ -49,6 +49,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
   const [sseStatus, setSseStatus] = useState("connecting");
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const tokenGetter = isSignedIn ? getToken : undefined;
 
@@ -82,6 +83,36 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
     async (preferredRunId?: string | null) => {
       if (!tokenGetter) return;
 
+      const results = await Promise.allSettled([
+        apiFetch<Ticket>(`/tickets/${ticketId}`, {
+          getToken: tokenGetter,
+        }),
+        apiFetch<TimelineEvent[] | { items?: TimelineEvent[] }>(
+          `/tickets/${ticketId}/timeline`,
+          { getToken: tokenGetter }
+        ),
+        apiFetch<{ items?: ToolExecution[] }>(
+          `/tools/tickets/${ticketId}/executions`,
+          { getToken: tokenGetter }
+        ),
+        apiFetch<{ items?: ApprovalRequest[] }>(
+          `/approvals/tickets/${ticketId}`,
+          { getToken: tokenGetter }
+        ),
+        apiFetch<{ items?: ReplyDraft[] }>(
+          `/replies/tickets/${ticketId}/drafts`,
+          { getToken: tokenGetter }
+        ),
+        apiFetch<{ items?: AgentRun[] }>(`/agent/tickets/${ticketId}/runs`, {
+          getToken: tokenGetter,
+        }),
+      ]);
+
+      const ticketResult = results[0];
+      if (ticketResult.status === "rejected") {
+        throw ticketResult.reason;
+      }
+
       const [
         ticketData,
         timelineData,
@@ -89,52 +120,35 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
         approvalData,
         draftData,
         agentRunsData,
-      ] = await Promise.all([
-        apiFetch<Ticket>(`/tickets/${ticketId}`, {
-          getToken: tokenGetter,
-        }),
+      ] = results.map((result) =>
+        result.status === "fulfilled" ? result.value : null
+      ) as [
+        Ticket,
+        TimelineEvent[] | { items?: TimelineEvent[] } | null,
+        { items?: ToolExecution[] } | null,
+        { items?: ApprovalRequest[] } | null,
+        { items?: ReplyDraft[] } | null,
+        { items?: AgentRun[] } | null,
+      ];
 
-        apiFetch<TimelineEvent[] | { items?: TimelineEvent[] }>(
-          `/tickets/${ticketId}/timeline`,
-          {
-            getToken: tokenGetter,
-          }
-        ),
-
-        apiFetch<{ items?: ToolExecution[] }>(
-          `/tools/tickets/${ticketId}/executions`,
-          {
-            getToken: tokenGetter,
-          }
-        ),
-
-        apiFetch<{ items?: ApprovalRequest[] }>(
-          `/approvals/tickets/${ticketId}`,
-          {
-            getToken: tokenGetter,
-          }
-        ),
-
-        apiFetch<{ items?: ReplyDraft[] }>(
-          `/replies/tickets/${ticketId}/drafts`,
-          {
-            getToken: tokenGetter,
-          }
-        ),
-
-        apiFetch<{ items?: AgentRun[] }>(`/agent/tickets/${ticketId}/runs`, {
-          getToken: tokenGetter,
-        }),
-      ]);
+      const panelErrors = results
+        .slice(1)
+        .filter((result) => result.status === "rejected")
+        .map((result) =>
+          result.reason instanceof Error ? result.reason.message : "A ticket panel failed to load."
+        );
+      if (panelErrors.length) {
+        setError(panelErrors.join(" "));
+      }
 
       const runs = unwrapItems(agentRunsData);
 
       setTicket(ticketData);
-      setTimeline(unwrapItems(timelineData));
-      setTools(unwrapItems(toolData));
-      setApprovals(unwrapItems(approvalData));
-      setDrafts(unwrapItems(draftData));
-      setAgentRuns(runs);
+      if (timelineData) setTimeline(unwrapItems(timelineData));
+      if (toolData) setTools(unwrapItems(toolData));
+      if (approvalData) setApprovals(unwrapItems(approvalData));
+      if (draftData) setDrafts(unwrapItems(draftData));
+      if (agentRunsData) setAgentRuns(runs);
 
       const fallbackRunId = runs[0]?.id || null;
       const runIdToLoad =
@@ -158,6 +172,19 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
     },
     [ticketId, tokenGetter, selectedAgentRunId]
   );
+
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      void loadAll().catch((err) => {
+        setError(err instanceof Error ? err.message : "Refresh failed.");
+      });
+    }, 400);
+  }, [loadAll]);
 
   async function runAction(label: string, fn: () => Promise<void>) {
     if (!tokenGetter) {
@@ -220,7 +247,7 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
             return [...current, payload.event];
           });
 
-          loadAll();
+          scheduleRealtimeRefresh();
         }
       },
       onError() {
@@ -229,7 +256,15 @@ export function TicketWorkspace({ ticketId }: { ticketId: string }) {
     });
 
     return () => controller.abort();
-  }, [ticketId, tokenGetter, loadAll]);
+  }, [ticketId, tokenGetter, scheduleRealtimeRefresh]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <AppShell

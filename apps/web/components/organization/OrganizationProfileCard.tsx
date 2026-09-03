@@ -19,11 +19,13 @@ export function OrganizationProfileCard({
     organization.support_email || ""
   );
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function save() {
     if (!getToken) return;
 
     setSaving(true);
+    setError(null);
 
     try {
       await apiFetch("/organizations/current", {
@@ -36,6 +38,8 @@ export function OrganizationProfileCard({
       });
 
       await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save organization.");
     } finally {
       setSaving(false);
     }
@@ -73,6 +77,7 @@ export function OrganizationProfileCard({
       </div>
 
       <div>
+        {error ? <p className="error">{error}</p> : null}
         <button className="button" disabled={saving} onClick={save}>
           {saving ? "Saving..." : "Save Changes"}
         </button>

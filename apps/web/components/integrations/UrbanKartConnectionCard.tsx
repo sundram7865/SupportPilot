@@ -117,6 +117,18 @@ export function UrbanKartConnectionCard({
 
   return (
     <div className="stack">
+      <div className="info-panel">
+        <strong>Connect your store once</strong>
+        <p className="muted">
+          Save the merchant API base URL and key for this organization. SupportPilot
+          stores the key encrypted and uses this connection for order lookup,
+          refunds, and replacements. Do not change environment variables per request.
+        </p>
+        <p className="muted">
+          Your API must expose order, payment, shipment, health, refund, and
+          replacement operations compatible with the UrbanKart adapter.
+        </p>
+      </div>
       <div className="grid-two">
         <div>
           <label className="label">Provider</label>

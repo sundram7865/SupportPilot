@@ -48,6 +48,8 @@ export function OrganizationInviteForm({
       setMessage(result.message);
 
       await onInvited();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Invitation failed.");
     } finally {
       setSubmitting(false);
     }

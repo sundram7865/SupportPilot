@@ -28,9 +28,10 @@ export const queryKeys = {
   },
 
   knowledge: {
-    documents: ["knowledge", "documents"] as const,
-    chunks: (documentId: string) =>
-      ["knowledge", "documents", documentId, "chunks"] as const,
-    search: (query: string) => ["knowledge", "search", query] as const,
+    documents: (orgId: string | null) => ["knowledge", orgId, "documents"] as const,
+    chunks: (orgId: string | null, documentId: string) =>
+      ["knowledge", orgId, "documents", documentId, "chunks"] as const,
+    search: (orgId: string | null, query: string) =>
+      ["knowledge", orgId, "search", query] as const,
   },
 };

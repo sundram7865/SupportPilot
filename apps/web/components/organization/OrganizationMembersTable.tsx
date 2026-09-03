@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { apiFetch } from "@/lib/api";
 import type { OrganizationMember } from "@/types/api";
 
@@ -14,16 +16,22 @@ export function OrganizationMembersTable({
   getToken?: () => Promise<string | null>;
   onChanged: () => void;
 }) {
+  const [error, setError] = useState<string | null>(null);
+
   async function updateRole(memberId: string, role: string) {
     if (!getToken) return;
 
-    await apiFetch(`/organizations/members/${memberId}/role`, {
-      method: "PATCH",
-      getToken,
-      body: JSON.stringify({ role }),
-    });
-
-    await onChanged();
+    try {
+      setError(null);
+      await apiFetch(`/organizations/members/${memberId}/role`, {
+        method: "PATCH",
+        getToken,
+        body: JSON.stringify({ role }),
+      });
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update member.");
+    }
   }
 
   async function removeMember(memberId: string) {
@@ -32,12 +40,16 @@ export function OrganizationMembersTable({
     const ok = window.confirm("Remove this member from organization?");
     if (!ok) return;
 
-    await apiFetch(`/organizations/members/${memberId}`, {
-      method: "DELETE",
-      getToken,
-    });
-
-    await onChanged();
+    try {
+      setError(null);
+      await apiFetch(`/organizations/members/${memberId}`, {
+        method: "DELETE",
+        getToken,
+      });
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove member.");
+    }
   }
 
   if (members.length === 0) {
@@ -46,6 +58,7 @@ export function OrganizationMembersTable({
 
   return (
     <div className="table-wrap">
+      {error ? <p className="error">{error}</p> : null}
       <table className="table">
         <thead>
           <tr>

@@ -45,18 +45,16 @@ export function KnowledgeBaseClient() {
       setOrgId(boot.orgId);
 
       const response = await apiFetch<{
-  items: KnowledgeDocument[];
-  total: number;
-  limit: number;
-  offset: number;
-}>("/knowledge/documents", {
-  method: "GET",
-  getToken: tokenGetter,
-});
+        items: KnowledgeDocument[];
+        total: number;
+        limit: number;
+        offset: number;
+      }>("/knowledge/documents", {
+        method: "GET",
+        getToken: tokenGetter,
+      });
 
-setDocuments(response.items || []);
-
-      
+      setDocuments(response.items || []);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load knowledge base."
@@ -89,6 +87,40 @@ setDocuments(response.items || []);
     }
   }
 
+  async function downloadDocument(document: KnowledgeDocument) {
+    if (!tokenGetter || !document.cloudinary_public_id) {
+      setError("No file available for download.");
+      return;
+    }
+
+    try {
+      const response = await apiFetch<{
+        download_url: string;
+        expires_in: number;
+        file_name: string;
+        file_size: number;
+        file_type: string;
+      }>(`/knowledge/documents/${document.id}/download?expiration=3600`, {
+        method: "GET",
+        getToken: tokenGetter,
+      });
+
+      // Create a hidden anchor to trigger download
+      const link = window.document.createElement("a");
+      link.href = response.download_url;
+      link.download = response.file_name || document.title;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      window.document.body.appendChild(link);
+      link.click();
+      window.document.body.removeChild(link);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to download document."
+      );
+    }
+  }
+
   useEffect(() => {
     loadDocuments();
   }, [isSignedIn]);
@@ -98,7 +130,12 @@ setDocuments(response.items || []);
       title="Knowledge Base"
       subtitle="Manage company policies, SOPs, FAQs, and searchable support knowledge."
     >
-      {error ? <ErrorBanner message={error} /> : null}
+      {error ? (
+        <ErrorBanner
+          message={error}
+          onDismiss={() => setError(null)}
+        />
+      ) : null}
 
       {loading ? (
         <LoadingState message="Loading knowledge base..." />
@@ -117,6 +154,7 @@ setDocuments(response.items || []);
               getToken={tokenGetter}
               onChanged={loadDocuments}
               onViewChunks={loadChunks}
+              onDownload={downloadDocument}
             />
           </Section>
 

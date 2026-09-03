@@ -27,6 +27,8 @@ export function IntegrationSettingsClient() {
   const [logs, setLogs] = useState<ExternalApiLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [logsError, setLogsError] = useState<string | null>(null);
 
   const tokenGetter = isSignedIn ? getToken : undefined;
 
@@ -54,14 +56,26 @@ export function IntegrationSettingsClient() {
 
       if (connectionResponse.status === "fulfilled") {
         setConnection(connectionResponse.value);
+        setConnectionError(null);
       } else {
         setConnection(null);
+        setConnectionError(
+          connectionResponse.reason instanceof Error
+            ? connectionResponse.reason.message
+            : "Failed to load UrbanKart connection."
+        );
       }
 
       if (logsResponse.status === "fulfilled") {
         setLogs(logsResponse.value);
+        setLogsError(null);
       } else {
         setLogs([]);
+        setLogsError(
+          logsResponse.reason instanceof Error
+            ? logsResponse.reason.message
+            : "Failed to load integration logs."
+        );
       }
     } catch (err) {
       setError(
@@ -88,6 +102,7 @@ export function IntegrationSettingsClient() {
       ) : (
         <div className="stack">
           <Section title="UrbanKart Connection">
+            {connectionError ? <ErrorBanner message={connectionError} /> : null}
             <UrbanKartConnectionCard
               connection={connection}
               getToken={tokenGetter}
@@ -96,6 +111,7 @@ export function IntegrationSettingsClient() {
           </Section>
 
           <Section title="External API Logs">
+            {logsError ? <ErrorBanner message={logsError} /> : null}
             <ExternalApiLogsTable logs={logs} />
           </Section>
         </div>
