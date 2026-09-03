@@ -1,1306 +1,617 @@
 # SupportPilot System Design
 
-This document describes the internal system design of SupportPilot.
+This is the implementation aligned design reference for SupportPilot. It describes architecture, data ownership, database schemas, relationships, workflows, safety controls, background work, and tradeoffs.
 
-It focuses on architecture, boundaries, data ownership, workflows, safety controls, scaling, and failure handling. Product overview, local setup, deployment commands, and feature summary are intentionally kept in `README.md`.
-
----
-
-## 1. Design Summary
-
-SupportPilot is structured as a modular, multi-tenant support platform where ticket operations, AI reasoning, external tool execution, and human approvals are separated into clear backend-controlled layers.
-
-The central architectural idea is:
+## 1. Architectural Rules
 
 ```txt
-AI can reason.
-Backend controls execution.
-Humans approve risky actions.
-Every important action is traceable.
+Every business record belongs to an organization.
+Every protected request checks active membership and permission.
+The AI can propose tools but cannot call providers directly.
+Risky side effects require human approval.
+External side effects use idempotency keys.
+Timeline and audit records explain important actions.
+PostgreSQL is the durable source of truth.
+Redis is for rate limits, events, and optional task transport.
 ```
 
-The system is built around four control boundaries:
+## 2. Components and Ownership
 
 ```txt
-1. Tenant boundary
-   Every resource belongs to an organization.
-
-2. Permission boundary
-   Users act through roles and permissions.
-
-3. Tool boundary
-   AI cannot call external systems directly.
-
-4. Policy boundary
-   Risky replies/actions require approval or escalation.
+Next.js          owns presentation, Zustand, TanStack Query, and SSE display
+FastAPI          owns auth, tenant scope, domain rules, and transactions
+PostgreSQL       owns durable relational and vector data
+Redis            owns rate limits, event bus, and optional task transport
+Clerk            owns identity and sign in or sign up UX
+LangGraph        owns agent state, graph execution, and checkpoint resume
+Tool gateway     owns registry, scope, risk, idempotency, and execution
+UrbanKart client owns provider protocol and request logging
+Celery worker    owns optional task execution
+Celery Beat      owns optional periodic scheduling
 ```
 
----
-
-## 2. Non-Functional Requirements
-
-### 2.1 Safety
-
-The system must prevent uncontrolled AI actions.
-
-Examples:
+Layer direction:
 
 ```txt
-AI should not directly issue refunds.
-AI should not directly access merchant DBs.
-AI should not auto-reply to legal-risk tickets.
-AI should not bypass organization permissions.
-AI should not repeat risky external actions on retry.
+Presentation
+→ API routers and schemas
+→ Auth, organization, and permission dependencies
+→ Domain services
+→ Models and transactions
+→ External clients
 ```
 
-### 2.2 Tenant Isolation
+## 3. Main Request Flows
 
-All business data must be organization-scoped.
-
-```txt
-organization_id is the primary isolation key.
-```
-
-A user can access organization data only if an active membership exists.
-
-### 2.3 Traceability
-
-Every important workflow transition should leave an operational trace.
-
-Trace records include:
+Authenticated:
 
 ```txt
-timeline events
-audit logs
-tool execution records
-approval records
-reply draft state changes
-```
-
-### 2.4 Reliability
-
-The system should tolerate failures from:
-
-```txt
-LLM provider
-UrbanKart API
-Redis
-Celery worker
-database transient errors
-network timeouts
-duplicate requests
-```
-
-### 2.5 Extensibility
-
-The system should allow adding:
-
-```txt
-new ticket sources
-new merchant integrations
-new tools
-new approval policies
-new knowledge documents
-new background workflows
-new analytics
-```
-
----
-
-## 3. System Boundary Diagram
-
-```txt
-┌──────────────────────────────────────────────────────────────────┐
-│                         SupportPilot                              │
-│                                                                  │
-│  ┌──────────────┐       ┌─────────────────────────────────────┐  │
-│  │   Frontend   │──────▶│              API Layer               │  │
-│  │   Next.js    │       │ FastAPI routers + dependencies       │  │
-│  └──────────────┘       └──────────────────┬──────────────────┘  │
-│                                            │                     │
-│                                            ▼                     │
-│                         ┌─────────────────────────────────────┐  │
-│                         │          Domain Modules              │  │
-│                         │ Tickets | Agent | Tools | Approval   │  │
-│                         │ Knowledge | SLA | Audit | Analytics  │  │
-│                         └──────────────────┬──────────────────┘  │
-│                                            │                     │
-│                ┌───────────────────────────┼──────────────────┐ │
-│                ▼                           ▼                  ▼ │
-│     ┌──────────────────┐       ┌──────────────────┐  ┌────────┐│
-│     │ PostgreSQL        │       │ Redis             │  │ Gemini ││
-│     │ + pgvector        │       │ Celery + limits    │  │ LLM    ││
-│     └──────────────────┘       └──────────────────┘  └────────┘│
-│                                                                  │
-└──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                 ┌──────────────────────────┐
-                 │     UrbanKart Mock API    │
-                 │ External merchant system  │
-                 └──────────────────────────┘
-```
-
----
-
-## 4. Layered Architecture
-
-SupportPilot follows a layered architecture.
-
-```txt
-Presentation Layer
-→ Next.js UI, public form, dashboard
-
-API Layer
-→ FastAPI routers, request validation, auth dependencies
-
-Domain Layer
-→ tickets, agent, tools, approvals, replies, SLA, audit, analytics
-
-Integration Layer
-→ UrbanKart client, Gemini client, Redis, Clerk JWKS
-
-Persistence Layer
-→ SQLAlchemy models, PostgreSQL, pgvector
-
-Background Layer
-→ Celery worker and celery beat
-```
-
-### Why this separation matters
-
-```txt
-Frontend does not own business rules.
-AI does not execute external actions directly.
-Tools do not decide policy.
-Policy engine does not call external APIs.
-Approvals are stored separately from tool execution.
-Audit logs are append-only operational records.
-```
-
----
-
-## 5. Module Dependency Direction
-
-Preferred dependency direction:
-
-```txt
-Routes
-→ Dependencies
-→ Services / Helpers
-→ Models / Database
-→ External Clients
-```
-
-For AI workflow:
-
-```txt
-Agent Graph
-→ Tool Gateway
-→ Tool Executor
-→ UrbanKart Client
-```
-
-For knowledge retrieval:
-
-```txt
-Agent Graph
-→ Knowledge Search Service
-→ pgvector
-```
-
-For approvals:
-
-```txt
-Tool Execution / Reply Draft
-→ Approval Request
-→ Human Decision
-→ Final State Update
-```
-
-Avoid:
-
-```txt
-UrbanKart client calling agent logic
-Approval module directly calling LLM
-Frontend deciding workflow state
-AI bypassing tool gateway
-```
-
----
-
-## 6. Runtime Components
-
-```txt
-web
-api
-worker
-celery-beat
-postgres
-redis
-urbankart-mock-api
-```
-
-### Component Responsibility Matrix
-
-| Component | Owns | Does Not Own |
-|---|---|---|
-| `web` | UI state, API calls, SSE rendering | Business authorization, AI decisions |
-| `api` | Auth, domain workflows, tool gateway | Long-running scheduled jobs |
-| `worker` | Background tasks, SLA checks | HTTP routing |
-| `celery-beat` | Scheduling periodic jobs | Task execution logic |
-| `postgres` | Durable relational/vector data | Transient rate-limit counters |
-| `redis` | Celery broker/result backend, rate limits | Source of truth business records |
-| `urbankart-mock-api` | Mock merchant data/actions | SupportPilot tenant state |
-
----
-
-## 7. Request Lifecycle
-
-### 7.1 Authenticated Dashboard Request
-
-```txt
-Browser
-→ Next.js page/component
-→ API client attaches Clerk token
-→ API receives request
-→ Auth dependency resolves user
-→ Organization dependency checks x-organization-id
-→ RBAC dependency checks permission
-→ Route handler executes
-→ SQLAlchemy transaction
-→ Response returned
-```
-
-Failure points:
-
-```txt
-missing token → 401
-invalid token → 401
-missing organization → 401/403
-inactive membership → 403
-missing permission → 403
-resource not found in org → 404
-```
-
-### 7.2 Public Ticket Request
-
-```txt
-Customer public form
-→ POST /public/organizations/{slug}/tickets
-→ Redis rate limit
-→ organization lookup by slug
-→ ticket create
-→ initial message create
-→ timeline event create
+Clerk token
+→ local user resolution
+→ x-organization-id parsing
+→ active membership
+→ permission
+→ scoped resource lookup
+→ domain transaction
+→ timeline and audit records
 → response
 ```
 
-Public route does not require dashboard authentication.
-
-### 7.3 External API Ticket Request
+Public intake:
 
 ```txt
-External system
-→ POST /external/tickets
-→ Redis rate limit
-→ organization lookup by slug
-→ integration lookup
-→ decrypt stored API key
-→ constant-time compare
-→ ticket create
-→ external API log create
-→ response
+Public form
+→ rate limit
+→ organization slug
+→ Ticket, TicketMessage, TimelineEvent, SLA deadlines
 ```
 
----
-
-## 8. Data Ownership Model
-
-The organization is the primary ownership boundary.
+External intake:
 
 ```txt
-Organization
-├── Members
-├── Tickets
-│   ├── Messages
-│   ├── Internal Notes
-│   ├── Timeline Events
-│   ├── Agent Runs
-│   ├── Tool Executions
-│   ├── Approvals
-│   └── Reply Drafts
-├── Knowledge Documents
-│   └── Knowledge Chunks
-├── Integrations
-│   └── External API Logs
-└── Audit Logs
+Merchant request
+→ rate limit
+→ organization slug
+→ integration and encrypted key
+→ Ticket, TicketMessage, TimelineEvent, SLA deadlines
+→ ExternalApiLog
 ```
 
-### Ownership Rules
+## 4. Database Platform and Migration Chain
 
 ```txt
-A ticket belongs to one organization.
-A tool execution belongs to one organization and usually one ticket.
-An approval belongs to one organization and may reference a tool/reply/ticket.
-A knowledge document belongs to one organization.
-A user accesses organization data only through membership.
+PostgreSQL
+PostgreSQL vector extension
+SQLAlchemy 2
+Alembic
+pgvector vector(384)
 ```
 
----
-
-## 9. Core Data Model
-
-### 9.1 Identity and Tenant
+Migration chain:
 
 ```txt
-users
-organizations
-organization_members
+0001 pgvector
+→ 0002 auth organizations RBAC
+→ 0003 integrations logs
+→ 0004 tickets
+→ 0005 lifecycle
+→ 0006 knowledge
+→ 0007 agent
+→ 0008 tools
+→ 0009 approvals
+→ 0010 customer replies
+→ 0011 invitations
+→ 0012 SLA
+→ 0013 audit logs
+→ 0014 Cloudinary knowledge fields
 ```
 
-Purpose:
+Expected head: `0014_cloudinary_knowledge`.
+
+Notation: `PK` primary key, `NN` non null, `FK` foreign key, `J` JSONB, `ts` timestamptz, `V(384)` vector(384).
+
+## 5. Complete Database Schemas
+
+All UUID primary keys use ORM `uuid4`. Timestamp columns generally use `now()` server defaults and update timestamps use ORM or database update behavior as defined by the model.
+
+### users
 
 ```txt
-users                  stores platform users
-organizations          stores tenant/workspace
-organization_members   joins user to organization with role/status
+id uuid PK
+clerk_user_id varchar(255), nullable, unique
+email varchar(255), NN, unique
+name varchar(255), nullable
+avatar_url varchar(500), nullable
+created_at ts NN
+updated_at ts NN
 ```
 
-### 9.2 Ticketing
+### organizations
 
 ```txt
-tickets
-ticket_messages
-ticket_internal_notes
-ticket_timeline_events
+id uuid PK
+name varchar(255), NN
+slug varchar(255), NN, unique
+support_email varchar(255), nullable
+plan varchar(50), NN, default FREE
+created_at ts NN
+updated_at ts NN
 ```
 
-Purpose:
+### organization_members
 
 ```txt
-tickets                 support case source of truth
-ticket_messages         public/customer-visible messages
-ticket_internal_notes   private support notes
-ticket_timeline_events  operational ticket history
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+user_id uuid NN FK users.id CASCADE
+role varchar(50) NN default SUPPORT_AGENT
+status varchar(50) NN default ACTIVE
+created_at ts NN
+updated_at ts NN
 ```
 
-### 9.3 Knowledge and RAG
+Unique: organization plus user.
+
+### organization_invitations
 
 ```txt
-knowledge_documents
-knowledge_chunks
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+email varchar(255) NN
+name varchar(255), nullable
+role varchar(50) NN
+status varchar(30) NN default PENDING
+invited_by_user_id uuid nullable FK users.id SET NULL
+accepted_by_user_id uuid nullable FK users.id SET NULL
+accepted_at ts nullable
+created_at ts NN
+updated_at ts NN
 ```
 
-Purpose:
+Indexes: organization, email, organization plus email plus status.
+
+### integration_connections
 
 ```txt
-knowledge_documents     policy/SOP/FAQ documents
-knowledge_chunks        searchable chunks with vector embeddings
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+provider varchar(50) NN default URBANKART
+base_url varchar(500) NN
+encrypted_api_key text NN
+status varchar(50) NN default ACTIVE
+last_health_status varchar(50) nullable
+last_health_message text nullable
+last_checked_at ts nullable
+created_at ts NN
+updated_at ts NN
 ```
 
-### 9.4 Agent and Tools
+Unique: organization plus provider.
+
+### external_api_logs
 
 ```txt
-agent_runs
-tool_executions
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+integration_connection_id uuid nullable FK integration_connections.id SET NULL
+provider varchar(50) NN
+method varchar(20) NN
+endpoint varchar(500) NN
+status varchar(50) NN
+status_code integer nullable
+duration_ms integer nullable
+request_payload J nullable
+response_payload J nullable
+error_message text nullable
+created_at ts NN
 ```
 
-Purpose:
+### tickets
 
 ```txt
-agent_runs       one execution of LangGraph workflow
-tool_executions  individual backend tool calls
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_number varchar(50) NN
+subject varchar(255) NN
+description text NN
+status varchar(50) NN default OPEN
+status_changed_at ts nullable
+status_changed_by_user_id uuid nullable FK users.id SET NULL
+status_reason text nullable
+priority varchar(50) NN default MEDIUM
+category varchar(80) NN default OTHER
+source varchar(50) NN default SUPPORT_FORM
+customer_name varchar(255) nullable
+customer_email varchar(255) NN
+customer_phone varchar(50) nullable
+external_order_id varchar(100) nullable
+assigned_to_user_id uuid nullable FK users.id SET NULL
+created_by_user_id uuid nullable FK users.id SET NULL
+first_response_at ts nullable
+resolved_at ts nullable
+closed_at ts nullable
+first_response_due_at ts nullable
+resolution_due_at ts nullable
+sla_status varchar(50) NN default OK
+sla_near_breach_notified_at ts nullable
+sla_breached_at ts nullable
+ai_summary text nullable
+ai_confidence_score integer nullable
+metadata_json J nullable
+created_at ts NN
+updated_at ts NN
 ```
 
-### 9.5 Human Review
+Unique: organization plus ticket number. Indexes cover organization, ticket number, status, priority, category, customer, order, assignee, and timestamps.
+
+### ticket_messages
 
 ```txt
-approval_requests
-customer_reply_drafts
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_id uuid NN FK tickets.id CASCADE
+sender_type varchar(50) NN default CUSTOMER
+sender_user_id uuid nullable FK users.id SET NULL
+sender_name varchar(255) nullable
+sender_email varchar(255) nullable
+body text NN
+is_public boolean NN default true
+metadata_json J nullable
+created_at ts NN
 ```
 
-Purpose:
+### ticket_internal_notes
 
 ```txt
-approval_requests       human-in-the-loop decisions
-customer_reply_drafts   AI/agent/template-generated replies
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_id uuid NN FK tickets.id CASCADE
+author_user_id uuid nullable FK users.id SET NULL
+body text NN
+metadata_json J nullable
+created_at ts NN
 ```
 
-### 9.6 Operations
+### ticket_timeline_events
 
 ```txt
-integration_connections
-external_api_logs
-audit_logs
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_id uuid NN FK tickets.id CASCADE
+actor_user_id uuid nullable FK users.id SET NULL
+event_type varchar(80) NN default TICKET_CREATED
+title varchar(255) NN
+description text nullable
+old_value varchar(255) nullable
+new_value varchar(255) nullable
+metadata_json J nullable
+created_at ts NN
 ```
 
-Purpose:
+### ticket_status_transitions
 
 ```txt
-integration_connections encrypted merchant API config
-external_api_logs       external request/response tracking
-audit_logs              durable action history
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_id uuid NN FK tickets.id CASCADE
+actor_user_id uuid nullable FK users.id SET NULL
+from_status varchar(50) NN
+to_status varchar(50) NN
+trigger varchar(80) NN default AGENT_ACTION
+reason text nullable
+is_allowed boolean NN default true
+blocked_reason text nullable
+metadata_json J nullable
+created_at ts NN
 ```
 
----
-
-## 10. Ticket Domain Design
-
-Ticket is the main workflow aggregate.
-
-Ticket state is changed by:
+### knowledge_documents
 
 ```txt
-customer intake
-support agent action
-agent workflow
-approval outcome
-reply send
-SLA background job
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+title varchar(255) NN
+document_type varchar(80) NN default OTHER
+status varchar(50) NN default DRAFT
+content text NN
+source_url varchar(1000) nullable
+version integer NN default 1
+ingestion_status varchar(50) NN default PENDING
+ingestion_error text nullable
+chunk_count integer NN default 0
+metadata_json J nullable
+created_by_user_id uuid nullable FK users.id SET NULL
+updated_by_user_id uuid nullable FK users.id SET NULL
+ingested_at ts nullable
+cloudinary_public_id varchar(500) nullable
+cloudinary_url varchar(2000) nullable
+file_name varchar(500) nullable
+file_size integer nullable
+file_type varchar(100) nullable
+content_extraction_status varchar(50) nullable default pending
+created_at ts NN
+updated_at ts NN
 ```
 
-### Ticket Creation Transaction
+Unique: organization plus title. Indexes cover organization, status, ingestion, file metadata, and Cloudinary ID.
+
+### knowledge_chunks
 
 ```txt
-BEGIN
-  create ticket
-  create initial message
-  create timeline event
-COMMIT
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+document_id uuid NN FK knowledge_documents.id CASCADE
+chunk_index integer NN
+content text NN
+token_count integer NN default 0
+embedding V(384) NN
+metadata_json J nullable
+created_at ts NN
 ```
 
-This ensures a ticket is not created without its first message/timeline record.
+Indexes include organization, document, and IVFFlat cosine embedding index.
 
-### Ticket Numbering
-
-Ticket number is generated in a human-readable sequence:
+### agent_runs
 
 ```txt
-TICK-00001
-TICK-00002
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_id uuid NN FK tickets.id CASCADE
+started_by_user_id uuid nullable FK users.id SET NULL
+status varchar(50) NN default STARTED
+provider varchar(50) NN default mock
+model_name varchar(100) nullable
+detected_category varchar(80) nullable
+detected_priority varchar(50) nullable
+risk_level varchar(50) NN default LOW
+decision varchar(80) NN default NO_ACTION
+draft_response text nullable
+reasoning_summary text nullable
+planned_tools J nullable
+retrieved_context J nullable
+final_state J nullable
+error_message text nullable
+duration_ms integer nullable
+created_at ts NN
+completed_at ts nullable
 ```
 
-### Ticket Metadata
-
-Metadata is used for non-core contextual data:
+### agent_run_steps
 
 ```txt
-source channel
-client host
-user agent
-external payload
-agent run hints
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+agent_run_id uuid NN FK agent_runs.id CASCADE
+ticket_id uuid NN FK tickets.id CASCADE
+step_name varchar(100) NN
+status varchar(50) NN default STARTED
+input_json J nullable
+output_json J nullable
+error_message text nullable
+duration_ms integer nullable
+created_at ts NN
+completed_at ts nullable
 ```
 
----
-
-## 11. Ticket Lifecycle Design
-
-Ticket statuses:
+### tool_executions
 
 ```txt
-OPEN
-IN_PROGRESS
-WAITING_FOR_CUSTOMER
-WAITING_FOR_INTERNAL_REVIEW
-RESOLVED
-CLOSED
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_id uuid nullable FK tickets.id CASCADE
+agent_run_id uuid nullable FK agent_runs.id CASCADE
+requested_by_user_id uuid nullable FK users.id SET NULL
+tool_name varchar(100) NN
+risk_level varchar(50) NN default READ_ONLY
+status varchar(80) NN default STARTED
+approval_status varchar(80) NN default NOT_REQUIRED
+idempotency_key varchar(255) nullable
+input_args J nullable
+output_json J nullable
+error_message text nullable
+duration_ms integer nullable
+created_at ts NN
+completed_at ts nullable
 ```
 
-State machine:
+Unique: organization plus idempotency key.
+
+### approval_requests
 
 ```txt
-              ┌──────────────────────┐
-              │        OPEN          │
-              └──────────┬───────────┘
-                         ▼
-              ┌──────────────────────┐
-              │     IN_PROGRESS      │
-              └───────┬────────┬─────┘
-                      │        │
-                      ▼        ▼
- ┌──────────────────────────┐ ┌──────────────────────────────┐
- │ WAITING_FOR_CUSTOMER     │ │ WAITING_FOR_INTERNAL_REVIEW  │
- └────────────┬─────────────┘ └──────────────┬───────────────┘
-              │                              │
-              ▼                              ▼
-              ┌──────────────────────┐
-              │       RESOLVED       │
-              └──────────┬───────────┘
-                         ▼
-              ┌──────────────────────┐
-              │        CLOSED        │
-              └──────────────────────┘
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_id uuid nullable FK tickets.id CASCADE
+agent_run_id uuid nullable FK agent_runs.id SET NULL
+tool_execution_id uuid nullable FK tool_executions.id CASCADE
+requested_by_user_id uuid nullable FK users.id SET NULL
+decided_by_user_id uuid nullable FK users.id SET NULL
+request_type varchar(80) NN default TOOL_EXECUTION
+status varchar(50) NN default PENDING
+title varchar(255) NN
+description text nullable
+risk_level varchar(50) NN default HIGH_RISK_WRITE
+tool_name varchar(100) nullable
+input_args J nullable
+request_reason text nullable
+decision_reason text nullable
+result_json J nullable
+metadata_json J nullable
+created_at ts NN
+decided_at ts nullable
 ```
 
-Reopen path:
+Unique: organization plus tool execution.
+
+### customer_reply_drafts
 
 ```txt
-RESOLVED / CLOSED
-→ OPEN
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+ticket_id uuid NN FK tickets.id CASCADE
+agent_run_id uuid nullable FK agent_runs.id SET NULL
+approval_request_id uuid nullable FK approval_requests.id SET NULL
+created_by_user_id uuid nullable FK users.id SET NULL
+updated_by_user_id uuid nullable FK users.id SET NULL
+approved_by_user_id uuid nullable FK users.id SET NULL
+rejected_by_user_id uuid nullable FK users.id SET NULL
+sent_by_user_id uuid nullable FK users.id SET NULL
+sent_message_id uuid nullable FK ticket_messages.id SET NULL
+source varchar(50) NN default AGENT
+status varchar(50) NN default DRAFT
+subject varchar(255) nullable
+body text NN
+rejection_reason text nullable
+approval_reason text nullable
+send_notes text nullable
+metadata_json J nullable
+created_at ts NN
+updated_at ts NN
+approved_at ts nullable
+rejected_at ts nullable
+sent_at ts nullable
 ```
 
-Invalid transitions are blocked.
-
----
-
-## 12. Agent Workflow Design
-
-Agent workflow is modeled as a graph, not a single function.
+### audit_logs
 
 ```txt
-Ticket
-→ Load Context
-→ Classify
-→ Detect Risk
-→ Route
-→ Plan Tools
-→ Check Tool Permission
-→ Execute Tools
-→ Retrieve Knowledge
-→ Draft Response
-→ Policy Check
-→ Final Decision
+id uuid PK
+organization_id uuid NN FK organizations.id CASCADE
+actor_user_id uuid nullable FK users.id SET NULL
+action varchar(100) NN
+resource_type varchar(100) NN
+resource_id uuid nullable, polymorphic identifier
+ticket_id uuid nullable FK tickets.id SET NULL
+agent_run_id uuid nullable FK agent_runs.id SET NULL
+tool_execution_id uuid nullable FK tool_executions.id SET NULL
+approval_request_id uuid nullable FK approval_requests.id SET NULL
+reply_draft_id uuid nullable FK customer_reply_drafts.id SET NULL
+description text nullable
+metadata_json JSON nullable
+ip_address varchar(100) nullable
+user_agent text nullable
+created_at ts NN
 ```
 
-### Agent State
+Resource IDs are polymorphic by design and do not have foreign keys to every possible resource.
+
+## 6. Relationship and Delete Rules
 
 ```txt
-ticket_id
-organization_id
-customer_message
-ticket_category
-priority
-sentiment
-risk_level
-confidence
-required_tools
-tool_outputs
-retrieved_sources
-draft_response
-policy_decision
-final_action
+Organization owned records → organizations CASCADE
+Membership user → users CASCADE
+Ticket messages, notes, events, transitions → tickets CASCADE
+Agent runs → tickets CASCADE
+Agent steps → agent runs and tickets CASCADE
+Knowledge chunks → documents CASCADE
+External logs → integration connection SET NULL
+Actor fields → users SET NULL
+Approval agent run → agent runs SET NULL
+Approval tool execution → tool executions CASCADE
+Reply draft agent run and approval → SET NULL
+Reply sent message → ticket messages SET NULL
 ```
 
-### Final Actions
+Explicit ORM relationships include users memberships, organization members, ticket children, document chunks, agent run steps, and inverse ticket relationships. Some foreign keys intentionally have no ORM relationship because they are used only as scoped references.
+
+## 7. Agent Graph
 
 ```txt
-AUTO_REPLY
-APPROVAL_REQUIRED
-ASK_MORE_INFO
-ESCALATE
+load context
+→ retrieve knowledge
+→ classify
+→ detect risk
+→ plan tools
+→ approval interrupt
+→ execute approved tools
+→ draft response
+→ policy decision
+→ END
 ```
 
----
+The graph uses a PostgreSQL checkpoint thread keyed by agent run ID. Approval resumes the same graph with `Command(resume=...)`. Unknown tools cannot pass the registry. Refund and replacement executors require approval.
 
-## 13. LangGraph Node Design
-
-```txt
-┌──────────────────────────┐
-│ load_ticket_context_node │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│  classify_ticket_node    │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│  risk_detection_node     │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│    route_after_risk      │
-└───────┬─────────┬────────┘
-        │         │
-        │         ▼
-        │  immediate_escalation_node
-        │
-        ▼
-┌──────────────────────────┐
-│   tool_planning_node     │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│  tool_permission_node    │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│   execute_tools_node     │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│  rag_policy_search_node  │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│   draft_response_node    │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│   policy_engine_node     │
-└────────────┬─────────────┘
-             ▼
-┌──────────────────────────┐
-│ final_decision_edge      │
-└──────┬──────┬──────┬─────┘
-       │      │      │
-       ▼      ▼      ▼
- auto_reply approval escalation
-```
-
-### Node Responsibilities
-
-| Node | Responsibility |
-|---|---|
-| `load_ticket_context_node` | Load ticket, messages, customer, org, metadata |
-| `classify_ticket_node` | Classify category, priority, sentiment, risk, confidence |
-| `risk_detection_node` | Detect legal/financial/policy-sensitive cases |
-| `route_after_risk` | Branch based on risk and missing information |
-| `tool_planning_node` | Decide which tools are required |
-| `tool_permission_node` | Validate tool access and approval requirement |
-| `execute_tools_node` | Execute approved backend tools |
-| `rag_policy_search_node` | Retrieve relevant policies/SOPs |
-| `draft_response_node` | Generate grounded response draft |
-| `policy_engine_node` | Evaluate safety of response/action |
-| `final_decision_edge` | Route to auto-reply, approval, ask-more-info, escalation |
-
----
-
-## 14. Tool Gateway Design
-
-Tool gateway separates AI reasoning from external execution.
-
-```txt
-Agent chooses tool + args
-→ Tool registry lookup
-→ Organization/ticket validation
-→ Risk classification
-→ Approval requirement check
-→ Idempotency check
-→ Execute or block
-→ Store execution
-→ Create timeline event
-```
-
-### Tool Categories
-
-Read-only tools:
-
-```txt
-urbankart_get_order_context
-getOrderDetails
-checkPaymentStatus
-checkShipmentStatus
-getCustomerProfile
-searchKnowledgeBase
-```
-
-Risky/write tools:
-
-```txt
-urbankart_request_refund
-requestReplacement
-sendCustomerReply
-```
-
-### Tool Execution States
-
-```txt
-STARTED
-SUCCESS
-FAILED
-BLOCKED_APPROVAL_REQUIRED
-```
-
-### Approval States
-
-```txt
-NOT_REQUIRED
-PENDING
-APPROVED
-REJECTED
-```
-
----
-
-## 15. Idempotency Design
-
-Idempotency protects external side effects.
-
-Idempotency key is checked with:
-
-```txt
-ticket_id
-agent_run_id
-tool_name
-input_args
-idempotency_key
-```
-
-Same request:
-
-```txt
-same key + same tool + same args
-→ return previous execution
-```
-
-Conflict:
-
-```txt
-same key + different tool/args/ticket
-→ 409 Conflict
-```
-
-Used for:
-
-```txt
-refund request
-replacement request
-send customer reply
-future external write tools
-```
-
----
-
-## 16. RAG Design
-
-Knowledge ingestion:
+## 8. RAG
 
 ```txt
 Document
-→ chunk text
-→ generate embedding
-→ store chunk + vector
+→ extraction
+→ chunking
+→ embedding
+→ KnowledgeChunk vector
+→ query embedding
+→ organization, ACTIVE, INGESTED filters
+→ cosine distance
+→ top context
 ```
 
-Query flow:
+RAGAS builds records with question, answer, contexts, and ground truth. It evaluates context precision, context recall, faithfulness, and answer relevancy. It uses external model providers and is manual, synchronous, and excluded from production scheduling.
+
+## 9. SLA and Scheduling
+
+The shared `run_sla_check(db)` function is called either by Celery task `tickets.check_sla` or by protected `POST /internal/jobs/check-sla`.
+
+Free MVP:
 
 ```txt
-Ticket context / customer question
-→ generate query embedding
-→ pgvector similarity search
-→ return top knowledge chunks
-→ pass sources to agent
+External cron
+→ protected API endpoint
+→ PostgreSQL SLA update
 ```
 
-RAG helps with:
+Scalable deployment:
 
 ```txt
-refund policy
-return policy
-shipping policy
-damaged product SOP
-payment failure SOP
-legal risk SOP
-support tone guide
-```
-
-RAG result shape:
-
-```txt
-chunk_id
-document_id
-document_title
-document_type
-chunk_index
-content
-score
-```
-
----
-
-## 17. Policy Engine Design
-
-Policy engine is the final safety evaluator.
-
-Inputs:
-
-```txt
-ticket category
-risk level
-confidence
-tool outputs
-draft response
-amount/payment context
-retrieved policies
-```
-
-Rules:
-
-```txt
-refund > ₹1000 → approval
-money-related reply → approval
-legal risk → escalation
-confidence < 0.80 → approval
-low risk + confidence >= 0.80 → auto reply
-```
-
-Outputs:
-
-```txt
-AUTO_REPLY
-APPROVAL_REQUIRED
-ASK_MORE_INFO
-ESCALATE
-```
-
----
-
-## 18. Approval System Design
-
-Approval is a separate workflow object.
-
-Can be linked to:
-
-```txt
-tool execution
-reply draft
-ticket escalation
-```
-
-Approval lifecycle:
-
-```txt
-PENDING
-→ APPROVED
-→ REJECTED
-```
-
-Side effects:
-
-```txt
-approval approved
-→ update related object
-→ create timeline event
-→ create audit log
-
-approval rejected
-→ block related object/action
-→ create timeline event
-→ create audit log
-```
-
-Approval routes:
-
-```txt
-GET  /approvals
-GET  /approvals/{approval_id}
-POST /approvals/tool-executions/{execution_id}/request
-POST /approvals/{approval_id}/approve
-POST /approvals/{approval_id}/reject
-```
-
----
-
-## 19. Reply Workflow Design
-
-Reply draft is separate from ticket message until sent.
-
-Reason:
-
-```txt
-Drafts can be edited.
-Drafts can require approval.
-Rejected drafts should not become public messages.
-Sent replies should create public message history.
-```
-
-Lifecycle:
-
-```txt
-DRAFT
-→ PENDING_APPROVAL
-→ APPROVED / REJECTED
-→ SENT
-```
-
-Send flow:
-
-```txt
-Approved draft
-→ send action
-→ create TicketMessage
-→ mark draft SENT
-→ create timeline event
-→ create audit log
-```
-
----
-
-## 20. SSE Realtime Design
-
-Timeline events are the source of realtime UI updates.
-
-```txt
-Domain action
-→ timeline event created
-→ SSE event emitted
-→ frontend timeline updates
-```
-
-SSE event examples:
-
-```txt
-ticket.created
-agent.started
-agent.node.completed
-tool.called
-tool.completed
-approval.created
-approval.approved
-reply.sent
-sla.near_breach
-sla.breached
-```
-
-SSE is used instead of WebSocket because current realtime needs are mostly server-to-client.
-
----
-
-## 21. Celery Background Design
-
-Current background jobs:
-
-```txt
-SLA check
-near-breach detection
-breach detection
-health/background task
-```
-
-Future background jobs:
-
-```txt
-automatic agent execution
-email ingestion
-webhook processing
-agent replay/evaluation
-scheduled analytics
-```
-
-Architecture:
-
-```txt
-FastAPI / Celery Beat
+Celery Beat
 → Redis broker
 → Celery worker
-→ database update
-→ timeline/audit update
+→ PostgreSQL SLA update
 ```
 
-Production rule:
+Only one scheduler may be active for an environment.
 
-```txt
-Only one celery-beat instance should run.
-Multiple workers are allowed.
-```
-
----
-
-## 22. SLA Design
-
-SLA statuses:
-
-```txt
-OK
-NEAR_BREACH
-BREACHED
-```
-
-SLA check flow:
-
-```txt
-Celery beat triggers task
-→ worker scans active tickets
-→ worker compares current time with SLA deadline
-→ update SLA state
-→ create timeline event
-→ create audit log
-```
-
----
-
-## 23. Audit Design
-
-Audit logs are append-style operational records.
-
-Audit answers:
-
-```txt
-who performed the action
-what resource changed
-when it happened
-what metadata was attached
-```
-
-Resource types:
-
-```txt
-TICKET
-TICKET_MESSAGE
-TICKET_INTERNAL_NOTE
-AGENT_RUN
-TOOL_EXECUTION
-APPROVAL_REQUEST
-REPLY_DRAFT
-ORGANIZATION
-INTEGRATION
-SLA
-```
-
----
-
-## 24. Analytics Design
-
-Analytics is derived from operational tables.
-
-Source tables:
-
-```txt
-tickets
-approval_requests
-tool_executions
-customer_reply_drafts
-audit_logs
-```
-
-Metrics:
-
-```txt
-tickets by status
-tickets by category
-tickets by priority
-approval counts
-tool execution counts
-SLA counts
-reply counts
-```
-
-Endpoint:
-
-```txt
-GET /analytics/overview
-```
-
-Permission:
-
-```txt
-ANALYTICS_VIEW
-```
-
----
-
-## 25. Security Design
-
-Security controls:
+## 10. Security
 
 ```txt
 Clerk JWT verification
-organization membership check
-RBAC permission check
-dev auth disabled in production
-CORS validation
-security headers
-Redis-backed rate limiting
-safe error response
-encrypted integration API keys
-audit logs
+Active membership check
+Role permission check
+Organization scoped queries
+Encrypted integration keys
+Constant time external key comparison
+Strict production CORS
+Security headers
+Redis rate limits
+Trusted proxy configuration
+Safe errors
+Audit records
 ```
 
-Production config validation prevents unsafe startup.
+Production startup rejects development auth, weak secrets, missing Clerk settings, wildcard CORS, and localhost CORS origins.
 
-Rate-limited routes:
+## 11. Failure Handling
 
 ```txt
-GET  /public/organizations/{slug}
-POST /public/organizations/{slug}/tickets
-POST /external/tickets
+Invalid token → 401
+Missing organization → 400 or 403
+Inactive membership → 403
+Missing permission → 403
+Missing scoped resource → 404
+Invalid transition → 400
+Idempotency conflict → 409
+Provider failure → FAILED execution and audit history
+Rate limit → 429
+SLA database failure → rollback
 ```
 
----
-
-## 26. Error Handling Design
-
-Standard error shape:
-
-```json
-{
-  "error": {
-    "message": "Ticket not found.",
-    "status_code": 404,
-    "request_id": "..."
-  }
-}
-```
-
-Common failures:
+## 12. Tradeoffs and Boundaries
 
 ```txt
-missing organization → 401/403
-missing permission → 403
-missing ticket → 404
-invalid transition → 400
-idempotency conflict → 409
-rate limit exceeded → 429
-unexpected error → safe 500
-```
-
----
-
-## 27. Deployment Architecture
-
-Recommended production architecture:
-
-```txt
-Vercel Frontend
-      │
-      ▼
-Render/Railway API
-      │
-      ├── Neon/Supabase PostgreSQL + pgvector
-      ├── Upstash/managed Redis
-      ├── Gemini API
-      ├── Clerk JWKS
-      └── UrbanKart Mock API
-
-Render/Railway Worker
-      │
-      ├── PostgreSQL
-      └── Redis
-
-Render/Railway Beat
-      │
-      └── Redis
-```
-
----
-
-## 28. Scaling Strategy
-
-### API
-
-```txt
-Stateless API replicas
-Load balancer
-Managed Postgres
-Managed Redis
-```
-
-### Workers
-
-```txt
-Multiple Celery workers
-Shared Redis broker
-Idempotent external actions
-```
-
-### Beat
-
-```txt
-Single celery-beat instance
-```
-
-### Database
-
-Recommended indexes:
-
-```txt
-organization_id
-ticket_id
-status
-category
-priority
-created_at
-assignee_id
-```
-
-For pgvector:
-
-```txt
-vector index on knowledge_chunks.embedding
-```
-
-### Realtime
-
-Current:
-
-```txt
-single API instance SSE
-```
-
-Future multi-instance:
-
-```txt
-Redis pub/sub for SSE fanout
-or WebSocket gateway if bidirectional events are needed
-```
-
----
-
-## 29. Failure Handling
-
-```txt
-UrbanKart API failure
-→ tool execution FAILED
-→ error stored
-→ timeline event created
-
-Duplicate idempotency key with same args
-→ previous execution returned
-
-Duplicate idempotency key with different args
-→ 409 Conflict
-
-Missing organization
-→ 401/403
-
-Missing permission
-→ 403
-
-Missing ticket
-→ 404
-
-Invalid status transition
-→ 400
-
-Unsafe production env
-→ startup failure
-
-Rate limit exceeded
-→ 429
-
-Unexpected server error
-→ safe 500 response
-```
-
----
-
-## 30. Current Limitations
-
-```txt
-Agent execution is manual in v1.
-Celery does not auto-run agent yet.
-Email ingestion is not implemented yet.
-WhatsApp ingestion is not implemented yet.
-Advanced agent replay/eval is not implemented yet.
-Frontend e2e tests were skipped due Clerk dev setup issues.
-```
-
----
-
-## 31. Future Improvements
-
-```txt
-Automatic Celery-based agent execution
-Email channel ingestion
-WhatsApp integration
-Agent replay/evaluation system
-Agent trace viewer
-Sentry/structured observability
-More granular approval policies
-More merchant integrations
-Webhook delivery
-Advanced SLA analytics
-Advanced support QA dashboard
+Synchronous v1 agent runs are simple but consume API capacity.
+PostgreSQL checkpoints make approval resume durable but couple graph startup to the database.
+SSE is simpler than WebSockets for current server to client updates.
+External cron avoids worker cost on free hosting.
+Celery isolates long jobs but requires Redis and separate processes.
+Email based invitations are simple but lack token delivery and tracking.
+Only UrbanKart is currently a provider adapter.
 ```

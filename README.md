@@ -1,1883 +1,618 @@
 # SupportPilot
 
-<p align="center">
-  <b>Agentic AI Customer Support Platform for E-commerce and D2C Brands</b>
-</p>
+SupportPilot is an agentic customer support platform for ecommerce and direct to consumer companies. It combines multi tenant ticket operations, Clerk authentication, organization and role management, ecommerce integrations, policy grounded retrieval, LangGraph agent workflows, controlled tools, human approvals, reply drafts, realtime timelines, SLA monitoring, audit logs, and analytics.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
-  <img src="https://img.shields.io/badge/Frontend-Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" />
-  <img src="https://img.shields.io/badge/AI-LangGraph-1C3C3C?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/LLM-Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white" />
-  <img src="https://img.shields.io/badge/Database-PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" />
-  <img src="https://img.shields.io/badge/Vector-pgvector-336791?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Queue-Celery-37814A?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Cache-Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
-  <img src="https://img.shields.io/badge/Auth-Clerk-6C47FF?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Infra-Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
-</p>
-
----
-
-## Overview
-
-**SupportPilot** is a production-style **agentic AI customer support platform** for e-commerce and D2C brands.
-
-It combines a real ticketing system with a controlled AI workflow, RAG over support policies, safe backend tool execution, human approvals, reply drafts, SLA monitoring, audit logs, analytics, rate limiting, security hardening, and deployment-ready infrastructure.
-
-The system is designed around one safety rule:
-
-> The AI agent can reason and request actions, but sensitive operations are executed only through backend-controlled tools with permission checks, policy checks, approval rules, idempotency, and audit logging.
-
-SupportPilot is not a direct prompt-to-answer chatbot. It models a support operations workflow where an AI agent works inside a backend-enforced system.
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Problem Statement](#problem-statement)
-- [Core Design Principle](#core-design-principle)
-- [Demo Company: UrbanKart](#demo-company-urbankart)
-- [System Architecture](#system-architecture)
-- [High-Level System Flow](#high-level-system-flow)
-- [Agentic AI Workflow](#agentic-ai-workflow)
-- [End-to-End Ticket Workflow](#end-to-end-ticket-workflow)
-- [Human-in-the-Loop Safety Workflow](#human-in-the-loop-safety-workflow)
-- [Core Modules](#core-modules)
-- [Repository Structure](#repository-structure)
-- [Runtime Services](#runtime-services)
-- [Technology Stack](#technology-stack)
-- [Frontend Architecture](#frontend-architecture)
-- [Backend Architecture](#backend-architecture)
-- [Database Design](#database-design)
-- [Authentication, Organization, and RBAC](#authentication-organization-and-rbac)
-- [Ticketing System](#ticketing-system)
-- [Ticket Lifecycle State Machine](#ticket-lifecycle-state-machine)
-- [Public Customer Intake](#public-customer-intake)
-- [External API Intake](#external-api-intake)
-- [UrbanKart Integration Layer](#urbankart-integration-layer)
-- [Knowledge Base and RAG](#knowledge-base-and-rag)
-- [LangGraph Agent Design](#langgraph-agent-design)
-- [Safe Tool Gateway](#safe-tool-gateway)
-- [Policy Engine](#policy-engine)
-- [Approval System](#approval-system)
-- [Reply Draft and Customer Reply Workflow](#reply-draft-and-customer-reply-workflow)
-- [Realtime Timeline with SSE](#realtime-timeline-with-sse)
-- [Celery, Redis, and Background Jobs](#celery-redis-and-background-jobs)
-- [SLA Monitoring](#sla-monitoring)
-- [Audit Logs](#audit-logs)
-- [Analytics](#analytics)
-- [Security Design](#security-design)
-- [API Surface](#api-surface)
-- [Demo Flows](#demo-flows)
-- [Local Development Setup](#local-development-setup)
-- [Environment Variables](#environment-variables)
-- [Docker Setup](#docker-setup)
-- [Database Migrations](#database-migrations)
-- [Testing](#testing)
-- [Production Deployment Plan](#production-deployment-plan)
-- [Current Project Status](#current-project-status)
-- [Roadmap](#roadmap)
-- [Engineering Concepts Covered](#engineering-concepts-covered)
-
----
-
-## Problem Statement
-
-Customer support teams for e-commerce brands repeatedly handle tickets such as order status, payment failure, refund request, replacement request, damaged product, delivery issue, policy question, and legal complaint.
-
-A simple chatbot is not enough for these workflows because production support requires access to order/payment/shipment context, policy-aware answers, human approval for sensitive actions, audit trail, SLA tracking, multi-tenant isolation, RBAC, and operational dashboards.
-
-SupportPilot models these requirements as an agentic AI support platform.
-
----
-
-## Core Design Principle
-
-The AI agent never directly accesses the e-commerce database and never performs risky actions freely.
-
-Instead:
+The central rule is:
 
 ```txt
-Customer Ticket
-→ SupportPilot Backend
-→ LangGraph Agent
-→ Tool Gateway
-→ Permission-checked Backend Tools
-→ UrbanKart Support APIs
-→ RAG Policy Search
-→ Policy Engine
-→ Approval / Reply / Escalation
+The AI may reason and recommend.
+The backend decides what is allowed.
+Sensitive actions require human approval.
+Every important action is recorded.
 ```
 
-The AI can classify the ticket, detect risk, plan tools, use retrieved policies, draft a response, and recommend an action.
+SupportPilot is not a prompt to answer chatbot. It is a support operations system where AI works inside backend enforced boundaries.
 
-The backend enforces organization boundaries, RBAC, tool permissions, approval rules, idempotency, audit logging, timeline events, and policy checks.
+## Contents
 
----
+1. Architecture
+2. Repository and services
+3. Frontend
+4. Authentication and organizations
+5. Ticketing
+6. Ecommerce integrations
+7. Knowledge and RAG
+8. Agent workflow
+9. Tools and approvals
+10. Replies and realtime
+11. SLA and background work
+12. Database overview
+13. API surface
+14. Configuration
+15. Local development
+16. Free MVP operation
+17. Optional Celery operation
+18. Demo flows
+19. Testing
+20. Tradeoffs and limitations
 
-## Demo Company: UrbanKart
-
-SupportPilot uses a mock e-commerce company called **UrbanKart**.
-
-UrbanKart simulates the merchant system that SupportPilot integrates with.
-
-UrbanKart APIs:
+## Architecture
 
 ```txt
-GET  /api/support/orders/{order_id}
-GET  /api/support/orders/{order_id}/payment
-GET  /api/support/orders/{order_id}/shipment
-GET  /api/support/customers/by-email?email=
-POST /api/support/refunds/request
-POST /api/support/replacements/request
-GET  /api/support/health
+Customer or support agent
+          |
+          v
+Next.js frontend
+          |
+          v
+FastAPI API
+          |
+          +── PostgreSQL and pgvector
+          +── Redis
+          +── Clerk
+          +── Gemini and optional Groq evaluation
+          +── Ecommerce provider API
 ```
 
-Example demo order:
+The complete workflow is:
 
 ```txt
-Order ID: ORD-1001
-Product: UrbanStep Sneakers
-Amount: ₹1499
-Shipment: OUT_FOR_DELIVERY
+Ticket intake
+→ Ticket, first message, timeline event, SLA deadlines
+→ Agent run manually started in v1
+→ Context loaded
+→ Knowledge retrieved
+→ Category and priority classified
+→ Risk detected
+→ Tools planned
+→ Safe tools executed or risky tools blocked
+→ Human approval when required
+→ Response drafted
+→ Policy decision
+→ Reply draft, escalation, request for information, or no action
+→ Timeline and audit records
 ```
 
----
-
-## System Architecture
+## Repository
 
 ```txt
-┌───────────────────────────────────────────────────────────────┐
-│                           Users                               │
-│     Customer Public Form        Support Agent Dashboard        │
-└───────────────┬─────────────────────────────┬─────────────────┘
-                │                             │
-                ▼                             ▼
-┌───────────────────────────────────────────────────────────────┐
-│                       Next.js Frontend                         │
-│ Dashboard | Tickets | Timeline | Approvals | Analytics         │
-│ Public Form | Knowledge Search | Agent Run UI                  │
-│ Clerk Auth | TanStack Query | SSE Client                       │
-└──────────────────────────────┬────────────────────────────────┘
-                               │
-                               ▼
-┌───────────────────────────────────────────────────────────────┐
-│                         FastAPI Backend                        │
-│ Auth | RBAC | Organizations | Tickets | Agent | Tools          │
-│ Knowledge | Approvals | Replies | SSE | SLA | Audit | Analytics│
-│ Public Intake | External API Intake | Security                 │
-└───────────────┬──────────────────────────────┬────────────────┘
-                │                              │
-                │                              ▼
-                │          ┌──────────────────────────────────┐
-                │          │      Gemini + LangGraph Agent     │
-                │          │ Classification | Risk Detection   │
-                │          │ Tool Planning | RAG | Draft Reply │
-                │          │ Policy Decision | Final Routing   │
-                │          └──────────────────────────────────┘
-                │
-                ▼
-┌───────────────────────────────────────────────────────────────┐
-│                   PostgreSQL + pgvector                        │
-│ Users | Organizations | Tickets | Messages | Timeline          │
-│ Knowledge | Vectors | Agent Runs | Tool Executions             │
-│ Approvals | Reply Drafts | SLA | Audit Logs                    │
-└───────────────────────────────────────────────────────────────┘
-
-┌───────────────────────────────────────────────────────────────┐
-│                            Redis                              │
-│ Rate Limiting | Celery Broker | Celery Result Backend          │
-└───────────────────────────────────────────────────────────────┘
-
-┌───────────────────────────────────────────────────────────────┐
-│                    Celery Worker + Beat                       │
-│ SLA Monitoring | Scheduled Jobs | Future Async Agent Runs      │
-└───────────────────────────────────────────────────────────────┘
-
-┌───────────────────────────────────────────────────────────────┐
-│                       UrbanKart Mock API                       │
-│ Orders | Payments | Shipments | Customers | Refunds            │
-└───────────────────────────────────────────────────────────────┘
+SupportPilot/
+├── apps/api
+│   ├── app/common
+│   ├── app/core
+│   ├── app/db
+│   ├── app/modules
+│   │   ├── agent, analytics, approvals, audit, auth
+│   │   ├── external, integrations, internal, knowledge
+│   │   ├── organizations, public, realtime, replies
+│   │   ├── tickets, tools, users
+│   ├── app/scripts
+│   ├── app/worker
+│   ├── alembic
+│   ├── tests
+│   ├── Dockerfile
+│   └── requirements.txt
+├── apps/web
+├── apps/urbankart-mock-api
+├── apps/worker
+├── docs/SYSTEM_DESIGN.md
+├── docs/DEMO_GUIDE.md
+├── docker-compose.yml
+├── docker-compose.prod.yml
+└── .env.example
 ```
 
----
-
-## High-Level System Flow
+## Runtime Services
 
 ```txt
-Customer / External System
-→ Public Form or External API
-→ Ticket Created
-→ Initial Message Stored
-→ Timeline Event Created
-→ Support Agent Opens Ticket
-→ Agent Manually Triggered
-→ LangGraph Agent Workflow Starts
-→ Ticket Classification
-→ Risk Detection
-→ Tool Planning
-→ Tool Permission Check
-→ Safe Tool Execution
-→ UrbanKart API Context Retrieval
-→ RAG Policy Search
-→ Response Drafting
-→ Policy Engine Evaluation
-→ Final Decision
-→ Auto Reply / Approval / Ask More Info / Escalation
-→ Timeline Updated
-→ Audit Log Written
-→ Analytics Updated
-→ SLA Monitored by Celery
+web                 Next.js dashboard and public pages, used by the free MVP
+api                 FastAPI business workflows, required
+PostgreSQL          Durable records and vectors, required and can be managed
+Redis               Rate limits, events, and optional Celery broker
+urbankart-mock-api  Demo ecommerce provider
+worker              Optional Celery task process
+celery-beat         Optional periodic scheduler
 ```
 
----
+## Frontend
 
-## Agentic AI Workflow
+The frontend uses Next.js, TypeScript, Clerk, Zustand, TanStack Query, SSE, and Lucide icons.
 
-SupportPilot uses an agentic AI workflow instead of a direct prompt-response model.
-
-Basic chatbot:
+Routes:
 
 ```txt
-Customer message
-→ LLM
-→ Answer
+/sign-in
+/sign-up
+/dashboard
+/tickets/{ticketId}
+/approvals
+/audit-logs
+/settings/organization
+/settings/integrations
+/settings/knowledge
+/support/{organizationSlug}
+/embed/support
+/e2e-health
 ```
 
-SupportPilot:
+`AuthSyncGate` synchronizes Clerk once per user and bootstraps a local organization only when needed. `workspace-store.ts` keeps `me`, `orgId`, `status`, and `error`. `AppShell` and organization switching consume this shared state.
+
+The API client sends:
+
+```txt
+Authorization: Bearer <Clerk token>
+x-organization-id: <current organization>
+```
+
+The frontend renders loading, partial failure, action failure, and realtime states. It never owns permissions, approval rules, lifecycle rules, or tool safety.
+
+## Authentication and Organizations
+
+```txt
+Clerk sign in or sign up
+→ POST /auth/sync
+→ Verify Clerk JWT
+→ Create or update local user
+→ Accept pending email invitations
+→ GET /auth/me
+→ Create organization only when no membership exists
+→ Store current organization ID
+```
+
+Invitation behavior:
+
+```txt
+Owner invites email
+→ Pending invitation stored
+→ Person signs up through Clerk
+→ /auth/sync matches normalized email
+→ ACTIVE membership created
+→ Invitation becomes ACCEPTED
+```
+
+The current product does not send invitation email or use invitation tokens. Email delivery is an external responsibility.
+
+Roles:
+
+```txt
+OWNER, ADMIN, MANAGER, SUPPORT_AGENT, VIEWER
+```
+
+Permission areas:
+
+```txt
+Organization, team, tickets, knowledge, agent, audit, analytics,
+tools, approvals, and replies
+```
+
+Production requires `DEV_AUTH_ENABLED=false`, Clerk issuer and JWKS configuration, strict CORS, strong secrets, and no localhost origins.
+
+## Ticketing
+
+Ticket creation creates one transaction containing:
 
 ```txt
 Ticket
-→ Load context
-→ Classify ticket
-→ Detect risk
-→ Decide route
-→ Plan tools
-→ Check permissions
-→ Execute safe tools
-→ Retrieve policy knowledge
-→ Draft response
-→ Run policy engine
-→ Final decision
+Initial public TicketMessage
+TicketTimelineEvent
+First response and resolution SLA deadlines
 ```
 
-### Agent Responsibilities
-
-The agent can read ticket context, classify category/priority/sentiment/risk, detect legal and financial cases, decide whether more information is needed, plan backend tools, use safe tool results, retrieve policies and SOPs, draft customer responses, and decide whether a case is eligible for auto-reply, approval, ask-more-info, or escalation.
-
-### Backend Safety Responsibilities
-
-The backend controls which tools exist, which tools are risky, which tools require approval, whether a user belongs to an organization, whether a user has required permissions, whether idempotency keys are safe, whether generated responses violate policy, and whether timeline/audit logs are written.
-
----
-
-## End-to-End Ticket Workflow
+Categories:
 
 ```txt
-1. Customer submits support ticket
-2. Backend creates ticket
-3. Initial public message is stored
-4. Timeline event is created
-5. Support agent opens ticket
-6. Agent clicks "Run Agent"
-7. LangGraph workflow starts
-8. Ticket context is loaded
-9. Ticket is classified
-10. Risk level is detected
-11. Tool plan is generated
-12. Tool gateway validates requested tools
-13. Safe read tools fetch UrbanKart context
-14. Knowledge base is searched using RAG
-15. Gemini drafts response
-16. Policy engine checks safety
-17. Final action is selected
-18. Reply draft, approval, escalation, or ask-more-info flow is created
-19. Timeline is updated
-20. Audit log is written
+ORDER_STATUS, PAYMENT_ISSUE, REFUND_REQUEST, RETURN_REQUEST,
+DAMAGED_PRODUCT, CANCEL_ORDER, INVOICE_REQUEST, WARRANTY_REQUEST,
+GENERAL_FAQ, LEGAL_RISK, OTHER
 ```
 
-Current v1:
+Priorities:
 
 ```txt
-Ticket creation is automatic.
-Agent execution is manual.
+LOW, MEDIUM, HIGH, URGENT
 ```
 
-Planned v2:
+Statuses:
 
 ```txt
-Ticket created
-→ Celery task queued
-→ Worker runs LangGraph agent
-→ SSE streams progress
-→ Final action created
+OPEN, IN_PROGRESS, WAITING_FOR_CUSTOMER,
+WAITING_FOR_INTERNAL_REVIEW, RESOLVED, CLOSED
 ```
 
----
+Resolved and closed tickets may be reopened through the lifecycle state machine. Invalid transitions are blocked and tracked.
 
-## Human-in-the-Loop Safety Workflow
+## Ecommerce Integrations
 
-Risky examples include refund request, replacement request, money-related response, legal complaint, low-confidence AI response, high-impact customer action, and policy-sensitive cases.
+Companies do not change `.env` per request. Each organization configures its provider once in Settings, and the backend stores the encrypted credential in `integration_connections`.
+
+```txt
+Organization
+→ IntegrationConnection
+→ encrypted API key and base URL
+→ provider client
+```
+
+The UrbanKart adapter expects:
+
+```txt
+GET  /api/support/health
+GET  /api/support/orders/{order_id}
+GET  /api/support/orders/{order_id}/payment
+GET  /api/support/orders/{order_id}/shipment
+GET  /api/support/customers/by-email?email=...
+POST /api/support/refunds/request
+POST /api/support/replacements/request
+```
+
+Integration setup:
+
+```txt
+Admin enters base URL and API key
+→ API encrypts and stores the key
+→ Test connection calls health
+→ Tool gateway resolves connection by organization
+→ Provider result is written to external_api_logs
+```
+
+Future providers can use the same boundary through adapters for Shopify, WooCommerce, Magento, or a custom API.
+
+## Knowledge and RAG
+
+Text document flow:
+
+```txt
+Create document
+→ ACTIVE or DRAFT status
+→ Ingest
+→ Split into overlapping chunks
+→ Generate 384 dimension embedding
+→ Store pgvector chunks
+→ INGESTED status
+```
+
+File flow:
+
+```txt
+Upload PDF, DOCX, TXT, Markdown, CSV, JSON, or XML
+→ Cloudinary metadata
+→ Content extraction
+→ Chunking and embeddings
+→ pgvector storage
+```
+
+Search flow:
+
+```txt
+Question or ticket context
+→ Query embedding
+→ Organization filter
+→ ACTIVE document filter
+→ INGESTED document filter
+→ Cosine similarity
+→ Top chunks
+→ Agent context
+```
+
+The database uses `vector(384)`. Lightweight embeddings and normalized Gemini embeddings match this dimension.
+
+RAGAS is manual and evaluates current organization retrieval with golden questions, generated answers, context precision, context recall, faithfulness, and answer relevancy. It is not scheduled in production.
+
+## Agent Workflow
+
+```txt
+load_context_step
+→ retrieve_knowledge_step
+→ classify_ticket_step
+→ detect_risk_step
+→ plan_tools_step
+→ approval_node when required
+→ execute_tools_node
+→ draft_response_step
+→ decision_step
+→ END
+```
+
+The agent loads context, retrieves knowledge, classifies category and priority, detects risk, plans tools, pauses for approvals, drafts a grounded reply, and applies backend policy.
+
+Decisions:
+
+```txt
+AUTO_REPLY_DRAFT
+NEEDS_HUMAN_APPROVAL
+ESCALATE_TO_MANAGER
+ASK_CUSTOMER_FOR_MORE_INFO
+NO_ACTION
+```
+
+Legal and critical risk escalate. Order dependent cases without an order ID ask for more information. Refund and replacement actions require approval.
+
+`Run Agent` creates a new graph run from the beginning. `Execute Planned Tools` uses a stored plan and is intended for safe tools or legacy plans that were not executed. It does not rerun classification.
+
+## Tools and Approvals
+
+Registered tools:
+
+```txt
+urbankart_get_order_context       READ_ONLY
+urbankart_request_refund          HIGH_RISK_WRITE
+urbankart_request_replacement     HIGH_RISK_WRITE
+```
+
+Tool flow:
+
+```txt
+Tool request
+→ Registry lookup
+→ Scope validation
+→ Argument normalization
+→ Idempotency lookup
+→ Execute or block
+→ Provider call
+→ Result, timeline, and audit records
+```
+
+Same organization, key, tool, scope, and arguments return the existing execution. A reused key with different input returns conflict.
 
 Approval flow:
 
 ```txt
-Agent proposes risky action
-→ Tool gateway or policy engine blocks automatic execution
-→ Approval request is created
-→ Human reviewer opens approval inbox
+Risky tool planned
+→ BLOCKED_APPROVAL_REQUIRED
+→ ApprovalRequest PENDING
 → Human approves or rejects
-→ Related tool/reply/ticket state is updated
-→ Timeline event is created
-→ Audit log is created
+→ Approved execution resumes
+→ Rejection becomes SKIPPED
+→ Timeline and audit records
 ```
 
-Example refund workflow:
+## Replies and Realtime
+
+Reply lifecycle:
 
 ```txt
-Customer: "Payment deducted ₹1499 but order not created"
-
-Ticket created
-→ Agent classifies PAYMENT_ISSUE / REFUND_REQUEST
-→ Money risk detected
-→ Payment/order context checked
-→ Refund action proposed
-→ Tool gateway blocks execution
-→ Approval request created
-→ Human approves or rejects
-→ Final action proceeds only if approved
+DRAFT
+→ PENDING_APPROVAL
+→ APPROVED or REJECTED
+→ SENT
+→ Public TicketMessage
+→ Timeline and audit records
 ```
 
----
-
-## Core Modules
-
-| Module | Responsibility |
-|---|---|
-| Auth | User identity, Clerk JWT validation, dev auth |
-| Organizations | Multi-tenant organization management |
-| RBAC | Role and permission enforcement |
-| Tickets | Ticket creation, listing, detail, messages, notes |
-| Ticket Lifecycle | Status transition validation |
-| Public Intake | Customer-facing ticket creation |
-| External Intake | Server-to-server ticket creation |
-| Integrations | UrbanKart connection and encrypted API keys |
-| Knowledge | Policy/SOP documents and vector chunks |
-| Agent | LangGraph workflow orchestration |
-| Tools | Safe tool execution and idempotency |
-| Approvals | Human review for risky actions |
-| Replies | Reply drafts, approval, and sending |
-| Realtime | SSE timeline updates |
-| SLA | Near-breach and breach monitoring |
-| Audit | Action history and accountability |
-| Analytics | Operational support metrics |
-| Security | CORS, rate limiting, headers, error handling |
-
----
-
-## Repository Structure
+Realtime lifecycle:
 
 ```txt
-SupportPilot/
-├── apps/
-│   ├── api/
-│   │   ├── app/
-│   │   │   ├── core/
-│   │   │   ├── db/
-│   │   │   ├── common/
-│   │   │   ├── modules/
-│   │   │   │   ├── auth/
-│   │   │   │   ├── organizations/
-│   │   │   │   ├── integrations/
-│   │   │   │   ├── tickets/
-│   │   │   │   ├── knowledge/
-│   │   │   │   ├── agent/
-│   │   │   │   ├── tools/
-│   │   │   │   ├── approvals/
-│   │   │   │   ├── replies/
-│   │   │   │   ├── realtime/
-│   │   │   │   ├── public/
-│   │   │   │   ├── external/
-│   │   │   │   ├── audit/
-│   │   │   │   └── analytics/
-│   │   │   ├── worker/
-│   │   │   └── scripts/
-│   │   ├── alembic/
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── requirements.txt
-│   │   └── alembic.ini
-│   ├── web/
-│   └── urbankart-mock-api/
-├── docs/
-├── docker-compose.yml
-├── docker-compose.prod.yml
-├── README.md
-└── .env.example
+Domain action
+→ Timeline event committed
+→ Redis event bus
+→ SSE stream
+→ Browser appends event
+→ Coalesced panel refresh
 ```
 
----
-
-## Runtime Services
-
-| Service | Description |
-|---|---|
-| `web` | Next.js dashboard and public support UI |
-| `api` | FastAPI backend |
-| `worker` | Celery worker for background jobs |
-| `celery-beat` | Celery scheduler |
-| `postgres` | PostgreSQL database with pgvector |
-| `redis` | Redis for rate limiting and Celery |
-| `urbankart-mock-api` | Mock e-commerce support API |
-
----
-
-## Technology Stack
-
-### Frontend
-
-- Next.js
-- TypeScript
-- Tailwind CSS
-- Clerk
-- TanStack Query
-- Server-Sent Events
-
-### Backend
-
-- FastAPI
-- Python
-- Pydantic v2
-- SQLAlchemy
-- Alembic
-- PostgreSQL
-- pgvector
-- Redis
-- Celery
-- LangGraph
-- Gemini
-
-### Infrastructure
-
-- Docker
-- Docker Compose
-- Neon/Supabase-compatible PostgreSQL
-- Upstash/managed Redis
-- Vercel
-- Render/Railway
-
----
-
-## Frontend Architecture
-
-Frontend responsibilities include login with Clerk, dashboard layout, ticket list/detail, public ticket form, internal notes, messages, timeline rendering, agent run button, approval inbox, reply draft editor, knowledge search, analytics, audit logs, integration settings, and SSE-based live updates.
-
-Frontend API layer:
+## SLA and Background Work
 
 ```txt
-apps/web/lib/api.ts
+URGENT   first response 30 minutes   resolution 4 hours
+HIGH     first response 1 hour        resolution 8 hours
+MEDIUM   first response 4 hours       resolution 24 hours
+LOW      first response 8 hours       resolution 48 hours
 ```
 
-Frontend sends:
+Shared function: `run_sla_check(db)`.
+
+Free MVP:
 
 ```txt
-Authorization: Bearer <Clerk token>
-x-organization-id: <current organization id>
+External cron every minute
+→ POST /internal/jobs/check-sla
+→ FastAPI runs shared SLA function
+→ PostgreSQL is updated
 ```
 
----
-
-## Backend Architecture
-
-Backend entrypoint:
+Required header:
 
 ```txt
-apps/api/app/main.py
+X-Internal-Job-Secret: configured secret
 ```
 
-Core routes:
+Optional paid deployment:
 
 ```txt
-/health
-/auth
-/organizations
-/integrations
-/tickets
-/knowledge
-/agent
-/tools
-/approvals
-/replies
-/realtime
-/public
-/external
-/audit-logs
-/analytics
+Celery Beat every 60 seconds
+→ Redis
+→ Celery worker
+→ shared SLA function
 ```
 
-Core backend responsibilities include request validation, auth resolution, organization scoping, RBAC enforcement, ticket workflows, agent orchestration, tool execution, approval management, reply management, realtime timeline, SLA updates, audit logging, analytics aggregation, security middleware, rate limiting, and error handling.
+Do not run external cron and Celery Beat for the same environment. Celery is not used for RAGAS, agent runs, invitation email, or knowledge ingestion in the current v1.
 
----
-
-## Database Design
-
-Primary database:
-
-```txt
-PostgreSQL + pgvector
-```
-
-Main tables/models:
+## Database Overview
 
 ```txt
 users
 organizations
 organization_members
+organization_invitations
 integration_connections
 external_api_logs
 tickets
 ticket_messages
 ticket_internal_notes
 ticket_timeline_events
+ticket_status_transitions
 knowledge_documents
 knowledge_chunks
 agent_runs
+agent_run_steps
 tool_executions
 approval_requests
 customer_reply_drafts
 audit_logs
 ```
 
-Entity relationship overview:
-
 ```txt
-User
- └── OrganizationMember
-       └── Organization
-             ├── Tickets
-             │    ├── TicketMessages
-             │    ├── TicketInternalNotes
-             │    ├── TicketTimelineEvents
-             │    ├── AgentRuns
-             │    ├── ToolExecutions
-             │    ├── ApprovalRequests
-             │    └── ReplyDrafts
-             ├── KnowledgeDocuments
-             │    └── KnowledgeChunks
-             ├── IntegrationConnections
-             │    └── ExternalApiLogs
-             └── AuditLogs
+Organization
+├── Members and Invitations
+├── Tickets
+│   ├── Messages, Notes, Timeline, StatusTransitions
+│   ├── AgentRuns and AgentRunSteps
+│   ├── ToolExecutions
+│   ├── ApprovalRequests
+│   └── ReplyDrafts
+├── KnowledgeDocuments and KnowledgeChunks
+├── IntegrationConnections and ExternalApiLogs
+└── AuditLogs
 ```
 
----
-
-## Authentication, Organization, and RBAC
-
-Auth flow:
-
-```txt
-Incoming request
-→ Resolve current user
-→ Verify Clerk JWT or dev auth
-→ Resolve organization from x-organization-id
-→ Check active organization membership
-→ Check required permission
-→ Execute route
-```
-
-Dev auth headers:
-
-```txt
-x-dev-user-id
-x-dev-email
-x-dev-name
-x-organization-id
-```
-
-Roles:
-
-```txt
-OWNER
-ADMIN
-MANAGER
-SUPPORT_AGENT
-VIEWER
-CUSTOMER
-AI_AGENT
-```
-
-Permissions:
-
-```txt
-ORGANIZATION_READ
-ORGANIZATION_UPDATE
-TEAM_READ
-TEAM_INVITE
-TEAM_UPDATE
-TEAM_REMOVE
-TICKET_READ
-TICKET_CREATE
-TICKET_UPDATE
-TICKET_ASSIGN
-TICKET_INTERNAL_NOTE
-AUDIT_VIEW
-ANALYTICS_VIEW
-```
-
-Production rule:
-
-```env
-DEV_AUTH_ENABLED=false
-```
-
----
-
-## Ticketing System
-
-Ticket fields include organization ID, ticket number, subject, description, status, priority, category, source, customer name/email/phone, external order ID, assignee, metadata, SLA status, status reason, and actor tracking.
-
-Categories:
-
-```txt
-ORDER_STATUS
-PAYMENT_ISSUE
-REFUND_REQUEST
-RETURN_REPLACEMENT
-PRODUCT_QUESTION
-DELIVERY_ISSUE
-ACCOUNT_ISSUE
-COMPLAINT
-LEGAL_RISK
-OTHER
-```
-
-Priorities:
-
-```txt
-LOW
-MEDIUM
-HIGH
-URGENT
-```
-
-Sources:
-
-```txt
-SUPPORT_FORM
-WEB_WIDGET
-EMAIL
-WHATSAPP
-API
-MANUAL
-```
-
-Ticket routes:
-
-```txt
-POST   /tickets
-GET    /tickets
-GET    /tickets/{id}
-PATCH  /tickets/{id}
-POST   /tickets/{id}/messages
-POST   /tickets/{id}/internal-notes
-POST   /tickets/{id}/assign
-POST   /tickets/{id}/close
-POST   /tickets/{id}/reopen
-```
-
----
-
-## Ticket Lifecycle State Machine
-
-Current ticket statuses:
-
-```txt
-OPEN
-IN_PROGRESS
-WAITING_FOR_CUSTOMER
-WAITING_FOR_INTERNAL_REVIEW
-RESOLVED
-CLOSED
-```
-
-Example lifecycle:
-
-```txt
-OPEN
-→ IN_PROGRESS
-→ WAITING_FOR_CUSTOMER
-→ RESOLVED
-→ CLOSED
-```
-
-Reopen flow:
-
-```txt
-RESOLVED / CLOSED
-→ OPEN
-```
-
-The lifecycle validator prevents invalid transitions and keeps ticket history consistent.
-
----
-
-## Public Customer Intake
-
-Routes:
-
-```txt
-GET  /public/organizations/{slug}
-POST /public/organizations/{slug}/tickets
-```
-
-Captured metadata:
-
-```txt
-intake_channel
-organization_slug
-client_host
-user_agent
-```
-
-Rate limit:
-
-```env
-PUBLIC_WRITE_RATE_LIMIT_PER_MINUTE=10
-```
-
----
-
-## External API Intake
-
-Route:
-
-```txt
-POST /external/tickets
-```
-
-Headers:
-
-```txt
-x-organization-slug
-x-supportpilot-api-key
-```
-
-Flow:
-
-```txt
-External system sends ticket
-→ Organization is resolved by slug
-→ Active integration is checked
-→ Stored API key is decrypted
-→ API key is compared securely
-→ Ticket is created
-→ Message is created
-→ Timeline event is created
-→ External API log is written
-```
-
-Rate limit:
-
-```env
-EXTERNAL_API_RATE_LIMIT_PER_MINUTE=30
-```
-
----
-
-## UrbanKart Integration Layer
-
-Main concepts:
-
-```txt
-IntegrationConnection
-ExternalApiLog
-UrbanKartClient
-Encrypted API key
-Provider status
-Health check
-```
-
-Integration statuses:
-
-```txt
-ACTIVE
-INACTIVE
-ERROR
-```
-
-External API log statuses:
-
-```txt
-SUCCESS
-FAILED
-```
-
-Routes:
-
-```txt
-POST /integrations/urbankart
-GET  /integrations/urbankart/health
-GET  /integrations/external-logs
-```
-
-Credentials are encrypted using Fernet:
-
-```env
-INTEGRATION_SECRET_KEY=<fernet-key>
-```
-
----
-
-## Knowledge Base and RAG
-
-Knowledge document types:
-
-```txt
-POLICY
-FAQ
-SOP
-MACRO
-PRODUCT_INFO
-SHIPPING_POLICY
-REFUND_POLICY
-RETURN_POLICY
-OTHER
-```
-
-Knowledge flow:
-
-```txt
-Knowledge document created
-→ Document is chunked
-→ Gemini embedding is generated
-→ Chunk vector is stored in pgvector
-→ Query embedding is generated
-→ Similar chunks are retrieved
-→ Retrieved context is passed to agent
-```
-
-Knowledge result fields:
-
-```txt
-chunk_id
-document_id
-document_title
-document_type
-chunk_index
-content
-score
-```
-
-Seeded knowledge docs include Refund Policy, Shipping Policy, Return Policy, Payment Failure SOP, Damaged Product SOP, Warranty Policy, Legal Risk SOP, and Support Tone Guide.
-
----
-
-## LangGraph Agent Design
-
-Agent state can include:
-
-```txt
-ticket_id
-organization_id
-ticket subject
-ticket description
-customer message
-customer email
-external order id
-category
-priority
-sentiment
-risk_level
-confidence
-required_tools
-tool_outputs
-retrieved_knowledge_sources
-draft_response
-policy_decision
-final_action
-```
-
-Agent nodes:
-
-```txt
-load_ticket_context_node
-classify_ticket_node
-risk_detection_node
-route_after_risk
-immediate_escalation_node
-ask_more_info_node
-tool_planning_node
-tool_permission_node
-execute_tools_node
-rag_policy_search_node
-draft_response_node
-policy_engine_node
-final_decision_conditional_edge
-auto_reply
-approval
-escalation
-```
-
----
-
-## Safe Tool Gateway
-
-Tool execution record:
-
-```txt
-id
-organization_id
-ticket_id
-agent_run_id
-requested_by_user_id
-tool_name
-risk_level
-status
-approval_status
-idempotency_key
-input_args
-output_json
-duration_ms
-completed_at
-error_message
-```
-
-Tool statuses:
-
-```txt
-STARTED
-SUCCESS
-FAILED
-BLOCKED_APPROVAL_REQUIRED
-```
-
-Read tools:
-
-```txt
-urbankart_get_order_context
-getOrderDetails
-checkPaymentStatus
-checkShipmentStatus
-getCustomerProfile
-searchKnowledgeBase
-```
-
-Risky tools:
-
-```txt
-urbankart_request_refund
-requestReplacement
-sendCustomerReply
-```
-
-Idempotency:
-
-```txt
-Same idempotency key + same ticket + same tool + same args
-→ return previous execution
-
-Same idempotency key + different args/tool/ticket
-→ 409 Conflict
-```
-
----
-
-## Policy Engine
-
-Rules:
-
-```txt
-Refund amount > ₹1000
-→ approval required
-
-Money-related final reply
-→ approval required
-
-Legal risk
-→ escalation
-
-Confidence < 0.80
-→ approval required
-
-Low risk + confidence >= 0.80
-→ auto reply allowed
-```
-
-Possible decisions:
-
-```txt
-AUTO_REPLY
-APPROVAL_REQUIRED
-ASK_MORE_INFO
-ESCALATE
-```
-
----
-
-## Approval System
-
-Approval types:
-
-```txt
-TOOL_EXECUTION
-CUSTOMER_REPLY
-TICKET_ESCALATION
-```
-
-Product-level approval categories:
-
-```txt
-SEND_REPLY_APPROVAL
-REFUND_APPROVAL
-REPLACEMENT_APPROVAL
-LEGAL_REVIEW
-LOW_CONFIDENCE_REVIEW
-DAMAGED_PRODUCT_REVIEW
-```
-
-Approval lifecycle:
-
-```txt
-Approval created
-→ PENDING
-→ APPROVED / REJECTED
-→ Related tool/reply state updated
-→ Timeline event created
-→ Audit log created
-```
-
-Routes:
-
-```txt
-GET  /approvals
-GET  /approvals/{approval_id}
-POST /approvals/tool-executions/{execution_id}/request
-POST /approvals/{approval_id}/approve
-POST /approvals/{approval_id}/reject
-```
-
----
-
-## Reply Draft and Customer Reply Workflow
-
-Reply draft sources:
-
-```txt
-AI
-AGENT
-TEMPLATE
-```
-
-Reply draft statuses:
-
-```txt
-DRAFT
-PENDING_APPROVAL
-APPROVED
-REJECTED
-SENT
-CANCELLED
-```
-
-Reply lifecycle:
-
-```txt
-Draft created
-→ Edited if needed
-→ Submitted for approval
-→ Approved or rejected
-→ Sent to customer
-→ Public ticket message created
-→ Timeline updated
-→ Audit log created
-```
-
-Routes:
-
-```txt
-POST  /replies/drafts
-GET   /replies/tickets/{ticket_id}/drafts
-GET   /replies/drafts/{draft_id}
-PATCH /replies/drafts/{draft_id}
-POST  /replies/drafts/{draft_id}/submit-approval
-POST  /replies/drafts/{draft_id}/approve
-POST  /replies/drafts/{draft_id}/reject
-POST  /replies/drafts/{draft_id}/send
-```
-
----
-
-## Realtime Timeline with SSE
-
-Realtime event examples:
-
-```txt
-ticket.created
-ticket.updated
-agent.started
-agent.node.started
-agent.node.completed
-tool.called
-tool.completed
-approval.created
-approval.approved
-approval.rejected
-reply.sent
-ticket.resolved
-ticket.escalated
-sla.near_breach
-sla.breached
-```
-
----
-
-## Celery, Redis, and Background Jobs
-
-Redis is used for rate limiting, Celery broker, Celery result backend, and future async workflows.
-
-Local Redis layout:
-
-```env
-REDIS_URL=redis://redis:6379/0
-CELERY_BROKER_URL=redis://redis:6379/1
-CELERY_RESULT_BACKEND=redis://redis:6379/2
-```
-
-For Upstash or managed Redis, the same `rediss://` URL may be used for all three.
-
-Celery worker responsibilities:
-
-```txt
-health/background tasks
-SLA checks
-near-breach detection
-breach detection
-future async agent execution
-```
-
-Celery beat responsibility:
-
-```txt
-periodically trigger SLA checks
-```
-
-Production rule:
-
-```txt
-Run only one celery-beat instance.
-```
-
----
-
-## SLA Monitoring
-
-SLA statuses:
-
-```txt
-OK
-NEAR_BREACH
-BREACHED
-```
-
-SLA workflow:
-
-```txt
-Ticket exists
-→ Celery beat triggers SLA check
-→ Worker scans active tickets
-→ Worker detects near-breach or breach
-→ Ticket SLA status is updated
-→ Timeline event is created
-→ Audit log is created
-→ Analytics can reflect SLA state
-```
-
----
-
-## Audit Logs
-
-Audit logs answer who did what, when, on which resource, and with what metadata.
-
-Resource types:
-
-```txt
-TICKET
-TICKET_MESSAGE
-TICKET_INTERNAL_NOTE
-AGENT_RUN
-TOOL_EXECUTION
-APPROVAL_REQUEST
-REPLY_DRAFT
-ORGANIZATION
-INTEGRATION
-SLA
-```
-
-Route:
-
-```txt
-GET /audit-logs
-```
-
-Required permission:
-
-```txt
-AUDIT_VIEW
-```
-
----
-
-## Analytics
-
-Route:
-
-```txt
-GET /analytics/overview
-```
-
-Includes total tickets, tickets by status/category/priority, approval counts, tool execution counts, SLA counts, and reply activity.
-
-Required permission:
-
-```txt
-ANALYTICS_VIEW
-```
-
----
-
-## Security Design
-
-Production requires:
-
-```env
-ENVIRONMENT=production
-DEV_AUTH_ENABLED=false
-CLERK_ISSUER=<required>
-CLERK_JWKS_URL=<required>
-INTEGRATION_SECRET_KEY=<strong-secret>
-```
-
-CORS:
-
-```env
-CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com
-```
-
-Security headers:
-
-```txt
-X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
-Referrer-Policy: strict-origin-when-cross-origin
-Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
-```
-
-Rate-limited routes:
-
-```txt
-GET  /public/organizations/{slug}
-POST /public/organizations/{slug}/tickets
-POST /external/tickets
-```
-
-Error response shape:
-
-```json
-{
-  "error": {
-    "message": "Ticket not found.",
-    "status_code": 404,
-    "request_id": "..."
-  }
-}
-```
-
----
+Complete attributes, foreign keys, delete rules, constraints, indexes, and migration details are in `docs/SYSTEM_DESIGN.md`.
 
 ## API Surface
 
-Health:
-
 ```txt
-GET /health
-GET /ready
-```
-
-Auth:
-
-```txt
-POST /auth/sync-user
-GET  /auth/me
-```
-
-Organizations:
-
-```txt
-POST  /organizations
-GET   /organizations/current
-PATCH /organizations/current
-GET   /organizations/members
-POST  /organizations/invite
-PATCH /organizations/members/{member_id}/role
-```
-
-Tickets:
-
-```txt
+GET    /health
+GET    /ready
+POST   /auth/sync
+GET    /auth/me
+POST   /auth/bootstrap-org
+POST   /organizations
+GET    /organizations/current
+PATCH  /organizations/current
+GET    /organizations/members
+POST   /organizations/invite
+GET    /organizations/invitations
+PUT    /integrations/urbankart
+GET    /integrations/urbankart
+POST   /integrations/urbankart/test-connection
+PATCH  /integrations/urbankart/deactivate
+GET    /integrations/urbankart/orders/{order_id}
+GET    /integrations/logs
 POST   /tickets
 GET    /tickets
-GET    /tickets/{id}
-PATCH  /tickets/{id}
-POST   /tickets/{id}/messages
-POST   /tickets/{id}/internal-notes
-POST   /tickets/{id}/assign
-POST   /tickets/{id}/close
-POST   /tickets/{id}/reopen
+GET    /tickets/{ticket_id}
+PATCH  /tickets/{ticket_id}
+GET    /tickets/{ticket_id}/timeline
+POST   /tickets/{ticket_id}/messages
+POST   /tickets/{ticket_id}/internal-notes
+POST   /knowledge/documents
+POST   /knowledge/documents/upload
+GET    /knowledge/documents
+PATCH  /knowledge/documents/{document_id}
+DELETE /knowledge/documents/{document_id}
+POST   /knowledge/documents/{document_id}/ingest
+GET    /knowledge/documents/{document_id}/chunks
+GET    /knowledge/documents/{document_id}/download
+POST   /knowledge/search
+POST   /knowledge/tickets/{ticket_id}/search
+POST   /knowledge/evaluation/golden
+GET    /knowledge/evaluation/questions
+POST   /knowledge/evaluation/search-test
+POST   /agent/tickets/{ticket_id}/run
+GET    /agent/runs/{run_id}
+GET    /agent/tickets/{ticket_id}/runs
+POST   /tools/execute
+POST   /tools/agent-runs/{run_id}/execute-safe
+GET    /tools/executions/{execution_id}
+GET    /tools/tickets/{ticket_id}/executions
+GET    /approvals
+GET    /approvals/{approval_id}
+POST   /approvals/tool-executions/{execution_id}/request
+POST   /approvals/{approval_id}/approve
+POST   /approvals/{approval_id}/reject
+POST   /replies/drafts
+GET    /replies/tickets/{ticket_id}/drafts
+PATCH  /replies/drafts/{draft_id}
+POST   /replies/drafts/{draft_id}/submit-approval
+POST   /replies/drafts/{draft_id}/approve
+POST   /replies/drafts/{draft_id}/reject
+POST   /replies/drafts/{draft_id}/send
+GET    /realtime/tickets/{ticket_id}/timeline/stream
+GET    /realtime/organizations/stream
+GET    /public/organizations/{slug}
+POST   /public/organizations/{slug}/tickets
+POST   /external/tickets
+POST   /internal/jobs/check-sla
+GET    /audit-logs
+GET    /analytics/overview
 ```
 
-Agent:
+## Configuration
 
-```txt
-POST /agent/tickets/{ticket_id}/run
-```
+Development needs database, Redis, integration encryption, and API URLs. Production additionally requires Clerk configuration, strong `INTERNAL_JOB_SECRET`, strong `INTEGRATION_SECRET_KEY`, `DEV_AUTH_ENABLED=false`, and frontend-only CORS origins.
 
-Tools:
-
-```txt
-POST /tools/execute
-GET  /tools/executions
-GET  /tools/executions/{execution_id}
-```
-
-Approvals:
-
-```txt
-GET  /approvals
-GET  /approvals/{approval_id}
-POST /approvals/tool-executions/{execution_id}/request
-POST /approvals/{approval_id}/approve
-POST /approvals/{approval_id}/reject
-```
-
-Replies:
-
-```txt
-POST  /replies/drafts
-GET   /replies/tickets/{ticket_id}/drafts
-GET   /replies/drafts/{draft_id}
-PATCH /replies/drafts/{draft_id}
-POST  /replies/drafts/{draft_id}/submit-approval
-POST  /replies/drafts/{draft_id}/approve
-POST  /replies/drafts/{draft_id}/reject
-POST  /replies/drafts/{draft_id}/send
-```
-
-Public intake:
-
-```txt
-GET  /public/organizations/{slug}
-POST /public/organizations/{slug}/tickets
-```
-
-External intake:
-
-```txt
-POST /external/tickets
-```
-
-Audit and analytics:
-
-```txt
-GET /audit-logs
-GET /analytics/overview
-```
-
----
-
-## Demo Flows
-
-### 1. Order Status
-
-```txt
-Customer: Where is my order ORD-1001?
-
-Ticket created
-→ Agent classifies ORDER_STATUS
-→ Risk LOW
-→ Tool planner selects urbankart_get_order_context
-→ Tool gateway fetches order/payment/shipment
-→ RAG searches shipping policy
-→ Agent drafts response
-→ Policy engine allows auto-reply if confidence is high
-```
-
-### 2. Payment Deducted
-
-```txt
-Customer: Payment deducted ₹1499 but order not created.
-
-Ticket created
-→ Agent classifies PAYMENT_ISSUE / REFUND_REQUEST
-→ Money-related risk detected
-→ Tool checks order/payment context
-→ Policy engine requires approval
-→ Approval request created
-```
-
-### 3. Legal Risk
-
-```txt
-Customer: I will file a consumer court complaint.
-
-Ticket created
-→ Agent detects legal risk
-→ Immediate escalation
-→ No automatic risky reply
-→ Human review required
-```
-
-### 4. Damaged Product
-
-```txt
-Customer: Product arrived damaged.
-
-Ticket created
-→ Agent classifies RETURN_REPLACEMENT / DAMAGED_PRODUCT
-→ RAG retrieves damaged product SOP
-→ Replacement/refund policy evaluated
-→ Approval or reply draft created
-```
-
----
-
-## Local Development Setup
-
-Clone:
-
-```bash
-git clone <repo-url>
-cd SupportPilot
-```
-
-Create root `.env`:
+Typical development values:
 
 ```env
 ENVIRONMENT=development
-DATABASE_URL=postgresql+psycopg://supportpilot:supportpilot@postgres:5432/supportpilot
-REDIS_URL=redis://redis:6379/0
-CELERY_BROKER_URL=redis://redis:6379/1
-CELERY_RESULT_BACKEND=redis://redis:6379/2
-URBANKART_BASE_URL=http://urbankart-mock-api:8001
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST/DB
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
+URBANKART_BASE_URL=http://localhost:8001
 URBANKART_API_KEY=dev_urbankart_key
 DEV_AUTH_ENABLED=true
-CLERK_ISSUER=
-CLERK_JWKS_URL=
 INTEGRATION_SECRET_KEY=replace-with-fernet-key
+INTERNAL_JOB_SECRET=dev-internal-job-secret
 AI_PROVIDER=mock
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-1.5-flash
 CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-RATE_LIMIT_ENABLED=true
-PUBLIC_READ_RATE_LIMIT_PER_MINUTE=60
-PUBLIC_WRITE_RATE_LIMIT_PER_MINUTE=10
-EXTERNAL_API_RATE_LIMIT_PER_MINUTE=30
 ```
 
-Start services:
+Never commit `.env` or real credentials. Rotate exposed credentials.
+
+## Local Development
 
 ```bash
-docker compose up -d --build
-```
-
-Run migrations:
-
-```bash
+docker compose build
+docker compose up -d
 docker compose exec api alembic upgrade head
-```
-
-Seed demo data:
-
-```bash
 docker compose exec api python -m app.scripts.seed_demo
-```
-
-Check API:
-
-```bash
 curl http://localhost:8000/ready
-```
-
-Run tests:
-
-```bash
-docker compose exec api python -m pytest -q
-```
-
-Start frontend:
-
-```bash
 cd apps/web
 npm install
 npm run dev
 ```
 
-Open:
+Open `http://localhost:3000`.
+
+## Free MVP Operation
+
+Set `INTERNAL_JOB_SECRET` in the API environment. Deploy only the API, database, frontend, and optional Redis. Configure cron-job.org or another scheduler:
 
 ```txt
-http://localhost:3000
+Method: POST
+URL: https://api.example.com/internal/jobs/check-sla
+Header: X-Internal-Job-Secret: your-secret
+Schedule: every minute
 ```
 
----
-
-## Environment Variables
-
-Backend:
-
-```env
-ENVIRONMENT=development
-DATABASE_URL=
-REDIS_URL=
-CELERY_BROKER_URL=
-CELERY_RESULT_BACKEND=
-URBANKART_BASE_URL=
-URBANKART_API_KEY=
-DEV_AUTH_ENABLED=true
-CLERK_ISSUER=
-CLERK_JWKS_URL=
-INTEGRATION_SECRET_KEY=
-AI_PROVIDER=mock
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-1.5-flash
-CORS_ALLOWED_ORIGINS=
-RATE_LIMIT_ENABLED=true
-PUBLIC_READ_RATE_LIMIT_PER_MINUTE=60
-PUBLIC_WRITE_RATE_LIMIT_PER_MINUTE=10
-EXTERNAL_API_RATE_LIMIT_PER_MINUTE=30
-```
-
-Frontend:
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
-```
-
-Do not commit:
-
-```txt
-.env
-.env.local
-apps/api/.env
-apps/web/.env.local
-```
-
-Safe files:
-
-```txt
-.env.example
-apps/api/.env.example
-apps/web/.env.example
-```
-
----
-
-## Docker Setup
-
-Start:
+## Optional Celery Operation
 
 ```bash
-docker compose up -d --build
+celery -A app.worker.celery_app.celery_app worker
+celery -A app.worker.celery_app.celery_app beat
 ```
 
-Stop:
-
-```bash
-docker compose down
-```
-
-Logs:
-
-```bash
-docker compose logs api --tail=100
-docker compose logs worker --tail=100
-docker compose logs celery-beat --tail=100
-```
-
-API shell:
-
-```bash
-docker compose exec api bash
-```
-
-Inside API container:
-
-```bash
-alembic upgrade head
-python -m app.scripts.seed_demo
-python -m pytest -q
-```
-
----
-
-## Database Migrations
-
-Run migrations:
-
-```bash
-docker compose exec api alembic upgrade head
-```
-
-Check current migration:
-
-```bash
-docker compose exec api alembic current
-```
-
-Check latest head:
-
-```bash
-docker compose exec api alembic heads
-```
-
-Verify pgvector:
-
-```bash
-docker compose exec api python -c "from sqlalchemy import create_engine, text; from app.core.config import get_settings; engine=create_engine(get_settings().database_url); conn=engine.connect(); print(conn.execute(text("select extname from pg_extension where extname='vector'")).fetchall()); conn.close()"
-```
-
-Expected:
-
-```txt
-[('vector',)]
-```
-
----
+Run only one Beat process. Use Celery when the platform supports separate workers or when long running agent, ingestion, email, webhook, or evaluation jobs need isolation.
 
 ## Testing
 
 ```bash
-docker compose exec api python -m pytest -q
+docker compose exec api pytest -q
+cd apps/web
+npm run build
+npm run test:e2e
 ```
 
-Current backend result:
+The backend suite covers health, readiness, tickets, replies, tools, idempotency, approvals, analytics, audit logs, and the internal SLA job endpoint.
+
+## Tradeoffs and Current Limits
 
 ```txt
-26 passed
-```
-
-Covered areas include health routes, readiness route, tickets, organization header errors, missing ticket errors, tool execution, idempotency, approval flow, reply draft lifecycle, reply sending, analytics, and audit logs.
-
----
-
-## Production Deployment Plan
-
-Recommended:
-
-```txt
-Frontend:        Vercel
-Backend API:     Render/Railway Web Service
-Worker:          Render/Railway Background Worker
-Celery Beat:     Render/Railway Background Worker
-Database:        Neon/Supabase PostgreSQL + pgvector
-Redis:           Upstash/managed Redis
-AI:              Gemini
-Auth:            Clerk
-UrbanKart API:   Separate deployed mock API for public demo
-```
-
-Backend API:
-
-```txt
-Root:        apps/api
-Dockerfile:  apps/api/Dockerfile
-Healthcheck: /ready
-```
-
-Start command:
-
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
-```
-
-Migration command:
-
-```bash
-alembic upgrade head
-```
-
-Worker:
-
-```bash
-celery -A app.worker.celery_app.celery_app worker --loglevel=info
-```
-
-Celery beat:
-
-```bash
-celery -A app.worker.celery_app.celery_app beat --loglevel=info
-```
-
-Production backend env:
-
-```env
-ENVIRONMENT=production
-DEV_AUTH_ENABLED=false
-DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=require
-REDIS_URL=rediss://default:PASSWORD@HOST:6379
-CELERY_BROKER_URL=rediss://default:PASSWORD@HOST:6379
-CELERY_RESULT_BACKEND=rediss://default:PASSWORD@HOST:6379
-URBANKART_BASE_URL=https://your-urbankart-mock-api-domain
-URBANKART_API_KEY=your-demo-key
-CLERK_ISSUER=https://your-clerk-domain
-CLERK_JWKS_URL=https://your-clerk-domain/.well-known/jwks.json
-INTEGRATION_SECRET_KEY=your-fernet-key
-AI_PROVIDER=gemini
-GEMINI_API_KEY=your-rotated-gemini-key
-GEMINI_MODEL=gemini-1.5-flash
-CORS_ALLOWED_ORIGINS=https://your-vercel-domain.vercel.app
-RATE_LIMIT_ENABLED=true
-PUBLIC_READ_RATE_LIMIT_PER_MINUTE=60
-PUBLIC_WRITE_RATE_LIMIT_PER_MINUTE=10
-EXTERNAL_API_RATE_LIMIT_PER_MINUTE=30
-```
-
-Do not deploy with:
-
-```txt
-DEV_AUTH_ENABLED=true
-localhost CORS origins
-real secrets committed to Git
-old exposed API keys
-```
-
----
-
-## Current Project Status
-
-Completed:
-
-```txt
-Phase 0   Product scope lock
-Phase 1   Engineering foundation
-Phase 2   Auth, organization, RBAC
-Phase 3   UrbanKart integration
-Phase 4   Ticketing system
-Phase 5   Ticket lifecycle state machine
-Phase 6   Knowledge base + RAG
-Phase 7   LangGraph agent
-Phase 8   Tool gateway
-Phase 9   Approval system
-Phase 10  SSE timeline
-Phase 11  Reply workflow
-Phase 12  SLA background workflow
-Phase 13  Audit logs
-Phase 14  Analytics
-Phase 15-28 Testing and frontend integration
-Phase 29  Security hardening
-Phase 30  Deployment preparation
-Phase 31  Documentation
-```
-
-Current v1 behavior:
-
-```txt
-Ticket creation is automatic.
-Agent execution is manual.
-Celery handles background/SLA workflows.
-Risky actions require approval.
-```
-
----
-
-## Roadmap
-
-V2:
-
-```txt
-Automatic Celery-based agent execution
-Email ticket ingestion
-WhatsApp integration
-Agent replay and evaluation system
-Advanced observability
-Webhook delivery
-More tool integrations
-More granular approval policies
-Improved public portal UI
-Advanced analytics dashboard
-Agent trace viewer
-```
-
-Automatic agent execution plan:
-
-```txt
-Ticket created
-→ TicketCreated event emitted
-→ Celery task queued
-→ Worker runs LangGraph agent
-→ Tool/RAG workflow executes
-→ SSE streams progress
-→ Final decision created
-```
-
-Future integrations:
-
-```txt
-Shopify
-WooCommerce
-Email inbox
-WhatsApp
-CRM systems
-Payment gateway APIs
-Shipment providers
-```
-
----
-
-## Engineering Concepts Covered
-
-```txt
-Multi-tenant SaaS architecture
-Organization-scoped APIs
-Clerk authentication
-Role-based access control
-Ticket lifecycle state machine
-Agentic AI workflow with LangGraph
-RAG with pgvector
-Gemini-based classification and response drafting
-Safe tool gateway
-Human-in-the-loop approvals
-Tool idempotency
-External API integration
-Public customer intake
-Server-to-server ticket intake
-Reply draft lifecycle
-SSE realtime timeline
-Celery worker
-Celery beat scheduler
-SLA monitoring
-Audit logs
-Analytics aggregation
-Rate limiting
-Security headers
-CORS hardening
-Safe error responses
-Dockerized infrastructure
-Production deployment preparation
-Backend test coverage
-```
-
-Main engineering pattern:
-
-```txt
-AI reasoning
-+ backend-controlled tools
-+ policy-grounded RAG
-+ human approval
-+ idempotency
-+ audit logs
-+ RBAC
-+ SLA/background workflows
+PostgreSQL is the durable source of truth; Redis is coordination infrastructure.
+LangGraph makes state and approval pauses inspectable, at the cost of more setup.
+The tool gateway prevents direct AI side effects, at the cost of explicit adapters.
+SSE is simpler than WebSockets for server to client timeline updates.
+External cron keeps the free MVP inexpensive, while Celery scales long jobs better.
+Invitation acceptance is currently email based and has no built in mail delivery.
+Only UrbanKart provider behavior is implemented.
+Agent runs and RAGAS are manual and synchronous in v1.
 ```
